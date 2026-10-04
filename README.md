@@ -19,7 +19,8 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
 - **Live Visual Monitor**: Captures real-time Playwright browser screenshots and displays what the browser is navigating at that very second.
 - **Visual Hop Chain**: Renders a clear node-link path from Start ➔ Intermediate Hops ➔ Target once found.
 - **Search Strategies**:
-  - **Smart Relevance (A\* / Best-First Heuristic)**: Intelligently scores outgoing links by title and summary similarity to reach the target rapidly.
+  - **Bidirectional Backlinks-Guided Search (Meet-in-the-Middle)**: Pre-maps up to 1,000 direct incoming backlinks to the target via the Wikipedia API. Any visited page linking to a backlink immediately detects a 1-hop path to the target (+5000 priority). Drastically accelerates distant or obscure queries (e.g. *Orlando &rarr; Oral sex* resolves in only 4 visited pages instead of 80+).
+  - **Semantic Category & Hub Weighting**: Integrates target categories and boosts high-centrality global bridges (countries, foundational disciplines) while penalizing dead-end local streets and school districts.
   - **Breadth-First Search (BFS)**: Systematically checks pages level by level to discover the shortest path.
 - **Wikipedia Autocomplete**: Real-time article suggestions as you type in the start or target fields.
 - **Quick Presets**: One-click exploration of popular Wikipedia pairings (e.g., *London &rarr; New York City*, *Python &rarr; Philosophy*, *Albert Einstein &rarr; Moon*).

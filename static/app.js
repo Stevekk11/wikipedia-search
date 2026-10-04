@@ -456,7 +456,8 @@ document.addEventListener("DOMContentLoaded", () => {
             startTimer();
             const maxPages = data.max_pages || appSettings.maxPages;
             kpiPagesSub.textContent = `Target: max ${maxPages}`;
-            kpiStatusBadge.textContent = "Playwright navigating...";
+            const backlinksCount = data.target_backlinks_count || 0;
+            kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
             statsSection.classList.remove("d-none");
             liveInspectorCard.classList.remove("d-none");
             intermediateSection.classList.remove("d-none");
@@ -634,11 +635,14 @@ document.addEventListener("DOMContentLoaded", () => {
             thumbHtml = `<img src="${page.screenshot}" class="table-thumb" alt="thumbnail" title="Click to view full screenshot">`;
         }
 
+        const feederBadge = page.is_feeder ? '<span class="badge text-bg-warning me-1" title="Direct feeder: links directly to target!"><i class="bi bi-star-fill me-1"></i>Direct Feeder</span>' : '';
+
         tr.innerHTML = `
             <td class="fw-bold text-secondary">#${page.step}</td>
             <td>${thumbHtml}</td>
             <td>
-                <div class="fw-semibold">
+                <div class="fw-semibold d-flex align-items-center flex-wrap gap-1">
+                    ${feederBadge}
                     <a href="${page.url}" target="_blank" class="text-body-emphasis text-decoration-none">
                         ${escapeHtml(page.title)} <i class="bi bi-box-arrow-up-right text-muted small ms-1"></i>
                     </a>
