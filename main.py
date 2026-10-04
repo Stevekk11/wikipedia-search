@@ -142,6 +142,26 @@ async def get_presets():
     return JSONResponse({"presets": presets})
 
 
+@app.post("/api/shutdown")
+async def shutdown_server():
+    """Gracefully shut down the FastAPI / Uvicorn server."""
+    def kill_later():
+        import os
+        import signal
+        import time
+        time.sleep(0.5)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    asyncio.create_task(asyncio.to_thread(kill_later))
+    return JSONResponse({
+        "status": "shutting_down",
+        "message": "WikiHop server is shutting down..."
+    })
+
+
 @app.websocket("/ws/search")
 async def websocket_search(websocket: WebSocket):
     """

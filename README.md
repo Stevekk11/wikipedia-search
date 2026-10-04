@@ -24,6 +24,7 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
 - **Wikipedia Autocomplete**: Real-time article suggestions as you type in the start or target fields.
 - **Quick Presets**: One-click exploration of popular Wikipedia pairings (e.g., *London &rarr; New York City*, *Python &rarr; Philosophy*, *Albert Einstein &rarr; Moon*).
 - **Responsive Bootstrap 5 UI**: Clean, modern interface with dark/light mode toggle, progress indicators, settings modal, and interactive modals.
+- **Graceful Server Shutdown**: Built-in red Shutdown button with confirmation modal and full-screen state overlay that cleanly terminates the server and background browser instances.
 
 ---
 

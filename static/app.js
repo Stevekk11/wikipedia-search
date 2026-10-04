@@ -346,6 +346,38 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // --- Shutdown Server Handler ---
+    const shutdownModalEl = document.getElementById("shutdownModal");
+    const confirmShutdownBtn = document.getElementById("confirmShutdownBtn");
+    const shutdownOverlay = document.getElementById("shutdownOverlay");
+
+    if (confirmShutdownBtn) {
+        confirmShutdownBtn.addEventListener("click", async () => {
+            confirmShutdownBtn.disabled = true;
+            confirmShutdownBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Shutting down...`;
+
+            try {
+                const modalInstance = bootstrap.Modal.getInstance(shutdownModalEl);
+                if (modalInstance) modalInstance.hide();
+
+                if (socket) {
+                    socket.onclose = null;
+                    socket.close();
+                }
+
+                await fetch("/api/shutdown", { method: "POST" });
+            } catch (e) {
+                console.log("Shutdown request sent:", e);
+            }
+
+            setTimeout(() => {
+                if (shutdownOverlay) {
+                    shutdownOverlay.classList.remove("d-none");
+                }
+            }, 300);
+        });
+    }
+
     // --- WebSocket Connection ---
     function connectWebSocket() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
