@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Live Inspector
     const liveInspectorCard = document.getElementById("liveInspectorCard");
+    const liveDirectionBadge = document.getElementById("liveDirectionBadge");
     const liveHopBadge = document.getElementById("liveHopBadge");
     const liveScreenshotImg = document.getElementById("liveScreenshotImg");
     const noScreenshotPlaceholder = document.getElementById("noScreenshotPlaceholder");
@@ -72,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Result Card & Hop Chain
     const resultCard = document.getElementById("resultCard");
     const resultHopBadge = document.getElementById("resultHopBadge");
+    const resultMeetingBadge = document.getElementById("resultMeetingBadge");
     const resultTitle = document.getElementById("resultTitle");
     const hopChainWrapper = document.getElementById("hopChainWrapper");
     const resultSummaryText = document.getElementById("resultSummaryText");
@@ -165,7 +167,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Summary Badges
         summaryContextBadge.innerHTML = `<i class="bi bi-quote me-1"></i> Context: ${appSettings.contextWords} words`;
-        summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Smart Relevance" : "BFS (Shortest)"}`;
+        summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Bidirectional Smart A*" : "Bidirectional BFS"}`;
         summaryLimitBadge.innerHTML = `<i class="bi bi-speedometer2 me-1"></i> Max ${appSettings.maxPages} Pages`;
     }
 
@@ -460,12 +462,17 @@ document.addEventListener("DOMContentLoaded", () => {
             setRunningState(true);
             startTimer();
             const maxPages = data.max_pages || appSettings.maxPages;
-            kpiPagesSub.textContent = `Target: max ${maxPages}`;
+            kpiPagesSub.textContent = "0 forward • 0 backward";
             const backlinksCount = data.target_backlinks_count || 0;
             kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
             statsSection.classList.remove("d-none");
             liveInspectorCard.classList.remove("d-none");
             intermediateSection.classList.remove("d-none");
+
+            if (liveDirectionBadge) {
+                liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+                liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+            }
 
         } else if (eventType === "visiting") {
             const page = data.page;
@@ -479,10 +486,23 @@ document.addEventListener("DOMContentLoaded", () => {
             progressBar.style.width = `${pct}%`;
 
             kpiPagesVisited.textContent = totalVisited;
+            const fCount = data.forward_visited_count !== undefined ? data.forward_visited_count : (page.direction === "forward" ? 1 : 0);
+            const bCount = data.backward_visited_count !== undefined ? data.backward_visited_count : (page.direction === "backward" ? 1 : 0);
+            kpiPagesSub.textContent = `${fCount} forward • ${bCount} backward`;
             kpiCurrentDepth.textContent = page.depth;
             kpiDepthSub.textContent = `Hop level ${page.depth}`;
             kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
             kpiLinksSub.textContent = `+${page.links_count} from this page`;
+
+            if (liveDirectionBadge) {
+                if (page.direction === "backward") {
+                    liveDirectionBadge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-left-circle me-1"></i> Backward from Target`;
+                } else {
+                    liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+                }
+            }
 
             liveHopBadge.textContent = `Hop ${page.depth}`;
             livePageTitle.textContent = page.title;
@@ -510,6 +530,10 @@ document.addEventListener("DOMContentLoaded", () => {
             progressBar.classList.remove("progress-bar-animated");
             progressBar.classList.add("bg-success");
             kpiStatusBadge.textContent = "Path Found!";
+
+            if (data.forward_visited_count !== undefined && data.backward_visited_count !== undefined) {
+                kpiPagesSub.textContent = `${data.forward_visited_count} forward • ${data.backward_visited_count} backward`;
+            }
 
             currentFoundPath = data.path;
             currentLinkContext = data.link_context;
@@ -550,13 +574,24 @@ document.addEventListener("DOMContentLoaded", () => {
         resultHopBadge.textContent = `${hops} Hop${hops === 1 ? "" : "s"} Required`;
         resultHopBadge.className = `badge ${hops <= 2 ? "bg-success" : "bg-primary"} fs-6 px-3 py-1 rounded-pill`;
 
+        if (resultMeetingBadge) {
+            const hasMeetingBridge = (data.intermediate_steps || []).some(s => s.badge && (s.badge.includes("Meeting") || s.badge.includes("Bridge")));
+            if (hasMeetingBridge || (data.found_on_page && data.found_on_page !== data.path[data.path.length - 1] && data.found_on_page !== data.path[0])) {
+                resultMeetingBadge.classList.remove("d-none");
+                resultMeetingBadge.innerHTML = `<i class="bi bi-intersect me-1"></i> Frontiers Met at "${escapeHtml(data.found_on_page || 'Intersection')}"`;
+            } else {
+                resultMeetingBadge.classList.add("d-none");
+            }
+        }
+
         const startTitle = data.path[0];
         const targetTitle = data.path[data.path.length - 1];
         resultTitle.innerHTML = `${escapeHtml(startTitle)} &rarr; ${escapeHtml(targetTitle)}`;
 
         resultSummaryText.innerHTML = `
             <strong>Target reached!</strong> Playwright inspected <strong>${data.total_visited}</strong> intermediate pages 
-            and found the path to <strong>${escapeHtml(targetTitle)}</strong> in exactly <strong>${hops}</strong> link hop${hops === 1 ? "" : "s"}.
+            (${data.forward_visited_count || 0} forward + ${data.backward_visited_count || 0} backward)
+            and connected <strong>${escapeHtml(startTitle)}</strong> to <strong>${escapeHtml(targetTitle)}</strong> in exactly <strong>${hops}</strong> link hop${hops === 1 ? "" : "s"}.
         `;
 
         // Render Visual Hop Chain
@@ -628,7 +663,9 @@ document.addEventListener("DOMContentLoaded", () => {
         steps.forEach((step, idx) => {
             const card = document.createElement("div");
             let borderClass = "";
-            if (step.badge && step.badge.includes("Target")) {
+            if (step.badge && (step.badge.includes("Meeting") || step.badge.includes("Bridge"))) {
+                borderClass = "step-meeting";
+            } else if (step.badge && step.badge.includes("Target")) {
                 borderClass = "step-target";
             } else if (step.is_feeder) {
                 borderClass = "step-feeder";
@@ -760,11 +797,17 @@ document.addEventListener("DOMContentLoaded", () => {
             thumbHtml = `<img src="${page.screenshot}" class="table-thumb" alt="thumbnail" title="Click to view full screenshot">`;
         }
 
+        const isForward = page.direction !== "backward";
+        const dirBadge = isForward
+            ? `<span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="bi bi-arrow-right me-1"></i>Forward</span>`
+            : `<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle"><i class="bi bi-arrow-left me-1"></i>Backward</span>`;
+
         const feederBadge = page.is_feeder ? '<span class="badge text-bg-warning me-1" title="Direct feeder: links directly to target!"><i class="bi bi-star-fill me-1"></i>Direct Feeder</span>' : '';
 
         tr.innerHTML = `
             <td class="fw-bold text-secondary">#${page.step}</td>
             <td>${thumbHtml}</td>
+            <td>${dirBadge}</td>
             <td>
                 <div class="fw-semibold d-flex align-items-center flex-wrap gap-1">
                     ${feederBadge}
@@ -844,6 +887,11 @@ document.addEventListener("DOMContentLoaded", () => {
         kpiStatusBadge.textContent = "Initializing...";
 
         resultCard.classList.add("d-none");
+        if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
+        if (liveDirectionBadge) {
+            liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+            liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+        }
         if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
         if (intermediateStepsList) intermediateStepsList.innerHTML = "";
         contextCard.classList.add("d-none");

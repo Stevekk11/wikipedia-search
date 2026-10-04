@@ -217,7 +217,12 @@
                     <span class="spinner-grow spinner-grow-sm text-primary" role="status"></span>
                     <span class="fw-semibold small text-uppercase text-secondary">Playwright Browser Live Inspection</span>
                 </div>
-                <span class="badge text-bg-secondary" id="liveHopBadge">Hop 0</span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary" id="liveDirectionBadge">
+                        <i class="bi bi-arrow-right-circle me-1"></i> Forward from Start
+                    </span>
+                    <span class="badge text-bg-secondary" id="liveHopBadge">Hop 0</span>
+                </div>
             </div>
             <div class="card-body p-4">
                 <div class="row g-4 align-items-center">
@@ -268,6 +273,9 @@
                             </span>
                             <span class="badge bg-primary fs-6 px-3 py-1 rounded-pill" id="resultHopBadge">
                                 0 Hops Required
+                            </span>
+                            <span class="badge bg-warning text-dark fs-6 px-3 py-1 rounded-pill d-none" id="resultMeetingBadge">
+                                <i class="bi bi-intersect me-1"></i> Frontiers Met in Middle
                             </span>
                         </div>
                         <h3 class="fw-bold mb-0 text-body-emphasis" id="resultTitle">Start &rarr; Target</h3>
@@ -407,9 +415,10 @@
                             <tr>
                                 <th style="width: 70px;">Step</th>
                                 <th style="width: 100px;">Screenshot</th>
-                                <th>Page Title & Wikipedia Link</th>
+                                <th style="width: 120px;">Frontier</th>
+                                <th>Page Title &amp; Wikipedia Link</th>
                                 <th style="width: 110px;">Hop Level</th>
-                                <th style="width: 130px;">Outgoing Links</th>
+                                <th style="width: 130px;">Links Scanned</th>
                                 <th>Summary Snippet</th>
                             </tr>
                         </thead>
@@ -475,10 +484,10 @@
                             <div class="col-md-6">
                                 <label for="modalAlgorithm" class="form-label small fw-semibold text-secondary">Search Algorithm</label>
                                 <select class="form-select form-select-sm" id="modalAlgorithm">
-                                    <option value="heuristic" selected>Smart Relevance (A* / Best-First) - Recommended</option>
-                                    <option value="bfs">Breadth-First Search (BFS) - Shortest Hop</option>
+                                    <option value="heuristic" selected>Bidirectional Smart Relevance (A* / Best-First) - Recommended</option>
+                                    <option value="bfs">Bidirectional Breadth-First Search (BFS) - Guaranteed Shortest</option>
                                 </select>
-                                <div class="form-text small">Smart relevance scores candidate links by topical similarity to reach target rapidly.</div>
+                                <div class="form-text small">Searches simultaneously from both Start and Target until frontiers meet in the middle.</div>
                             </div>
 
                             <div class="col-md-6">
@@ -486,7 +495,7 @@
                                     <label for="modalMaxPages" class="form-label small fw-semibold text-secondary mb-0">Max Intermediate Pages:</label>
                                     <span class="badge bg-secondary" id="modalMaxPagesBadge">35</span>
                                 </div>
-                                <input type="range" class="form-range" id="modalMaxPages" min="5" max="80" step="5" value="35">
+                                <input type="range" class="form-range" id="modalMaxPages" min="5" max="200" step="5" value="35">
                                 <div class="form-text small">Maximum intermediate pages Playwright will navigate.</div>
                             </div>
 

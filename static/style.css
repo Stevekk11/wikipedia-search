@@ -288,6 +288,11 @@ body {
     border-left-color: #06b6d4 !important;
 }
 
+.step-card.step-meeting {
+    border-left-color: #f59e0b !important;
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.05), transparent) !important;
+}
+
 .step-explanation-box {
     background-color: var(--bs-tertiary-bg);
     border-left: 3px solid #3b82f6;

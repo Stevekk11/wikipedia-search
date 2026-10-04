@@ -25,7 +25,9 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
 - **Live Visual Monitor**: Captures real-time Playwright browser screenshots and displays what the browser is navigating at that very second.
 - **Visual Hop Chain**: Renders a clear node-link path from Start ➔ Intermediate Hops ➔ Target once found.
 - **Search Strategies**:
-  - **Bidirectional Backlinks-Guided Search (Meet-in-the-Middle)**: Pre-maps up to 1,000 direct incoming backlinks to the target via the Wikipedia API. Any visited page linking to a backlink immediately detects a 1-hop path to the target (+5000 priority). Drastically accelerates distant or obscure queries (e.g. *Orlando &rarr; Oral sex* resolves in only 4 visited pages instead of 80+).
+  - **Simultaneous Bidirectional Meet-in-the-Middle Search**: Concurrently searches forward from the **Start** article and backward from the **Target** article (via incoming backlinks and Special:WhatLinksHere). The search frontiers alternately expand in Playwright until their outgoing or incoming links intersect. Searching from both sides simultaneously dramatically cuts search complexity from $O(b^d)$ to $O(b^{d/2})$, finding connections in obscure pairings (such as *Orlando &rarr; Oral sex*) with exceptional speed.
+  - **Dynamic Frontier Direction Tracking**: Live UI badges display whether Playwright is currently expanding `⏩ Forward from Start` or `⏪ Backward from Target`, with split KPI counters (`X forward • Y backward`).
+  - **Meeting Bridge Stitched Path**: When the two search frontiers collide, the forward path and reverse path are stitched together seamlessly with a dedicated `🤝 Meeting Bridge` intermediate step highlighting the exact connecting link.
   - **Semantic Category & Hub Weighting**: Integrates target categories and boosts high-centrality global bridges (countries, foundational disciplines) while penalizing dead-end local streets and school districts.
   - **Breadth-First Search (BFS)**: Systematically checks pages level by level to discover the shortest path.
 - **Wikipedia Autocomplete**: Real-time article suggestions as you type in the start or target fields.
