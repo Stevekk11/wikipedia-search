@@ -1,0 +1,204 @@
+/* Modern custom styles for WikiHop */
+
+:root {
+    --primary-gradient: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    --accent-glow: rgba(59, 130, 246, 0.25);
+    --node-border: #3b82f6;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+}
+
+.text-gradient {
+    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.brand-icon {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    border-radius: 10px;
+    font-size: 1.25rem;
+    box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.glass-navbar {
+    backdrop-filter: blur(12px);
+    background-color: rgba(var(--bs-body-bg-rgb), 0.85) !important;
+}
+
+/* Search Card */
+.search-card {
+    border-radius: 16px;
+    transition: all 0.2s ease;
+}
+
+/* Autocomplete Dropdown */
+.autocomplete-dropdown {
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    max-height: 280px;
+    overflow-y: auto;
+    border-radius: 12px;
+    border: 1px solid var(--bs-border-color);
+    background-color: var(--bs-body-bg);
+}
+
+.autocomplete-dropdown .list-group-item {
+    cursor: pointer;
+    transition: background 0.15s ease;
+    border-left: 0;
+    border-right: 0;
+}
+
+.autocomplete-dropdown .list-group-item:hover,
+.autocomplete-dropdown .list-group-item.active {
+    background-color: var(--bs-tertiary-bg);
+}
+
+/* Swap button */
+.swap-btn {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease, background 0.2s ease;
+}
+
+.swap-btn:hover {
+    transform: rotate(180deg) scale(1.08);
+}
+
+/* Metric Cards */
+.metric-card {
+    border-radius: 14px;
+    background: var(--bs-body-bg);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08) !important;
+}
+
+/* Live Inspector Screenshot */
+.screenshot-box {
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--bs-border-color);
+    position: relative;
+    cursor: pointer;
+}
+
+.screenshot-box img {
+    object-fit: cover;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.25s ease;
+}
+
+.screenshot-box:hover img {
+    transform: scale(1.03);
+}
+
+/* Hop Chain Nodes */
+.hop-chain-container {
+    overflow-x: auto;
+    padding-bottom: 8px;
+}
+
+.hop-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    background: var(--bs-tertiary-bg);
+    border: 2px solid var(--bs-border-color);
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+}
+
+.hop-node:hover {
+    border-color: #3b82f6;
+    transform: translateY(-2px);
+}
+
+.hop-node.start-node {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: #10b981;
+    color: #10b981;
+}
+
+.hop-node.target-node {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+.hop-node.intermediate-node {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.hop-arrow {
+    display: inline-flex;
+    align-items: center;
+    color: var(--bs-secondary-color);
+    font-size: 1.25rem;
+}
+
+/* Preset Chips */
+.preset-chip {
+    cursor: pointer;
+    font-size: 0.82rem;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+    transition: all 0.18s ease;
+    user-select: none;
+}
+
+.preset-chip:hover {
+    background: var(--bs-primary);
+    color: #ffffff !important;
+    border-color: var(--bs-primary);
+    transform: translateY(-1px);
+}
+
+/* Table Thumbnail */
+.table-thumb {
+    width: 65px;
+    height: 42px;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--bs-border-color);
+    transition: transform 0.15s ease;
+}
+
+.table-thumb:hover {
+    transform: scale(1.15);
+}
+
+.progress-glow {
+    box-shadow: 0 0 12px var(--accent-glow);
+    border-radius: 10px;
+    overflow: hidden;
+}

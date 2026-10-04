@@ -1,0 +1,602 @@
+/**
+ * WikiHop Client Application
+ * Real-time Wikipedia Link Hop Counter using Playwright & WebSockets
+ */
+
+document.addEventListener("DOMContentLoaded", () => {
+    // DOM Elements
+    const searchForm = document.getElementById("searchForm");
+    const startInput = document.getElementById("startInput");
+    const targetInput = document.getElementById("targetInput");
+    const swapBtn = document.getElementById("swapBtn");
+    const startSuggestions = document.getElementById("startSuggestions");
+    const targetSuggestions = document.getElementById("targetSuggestions");
+    const presetsContainer = document.getElementById("presetsContainer");
+
+    const algorithmSelect = document.getElementById("algorithmSelect");
+    const maxPagesInput = document.getElementById("maxPagesInput");
+    const maxPagesBadge = document.getElementById("maxPagesBadge");
+    const maxDepthInput = document.getElementById("maxDepthInput");
+    const maxDepthBadge = document.getElementById("maxDepthBadge");
+    const screenshotToggle = document.getElementById("screenshotToggle");
+    const headlessToggle = document.getElementById("headlessToggle");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+
+    // Stats & KPI
+    const statsSection = document.getElementById("statsSection");
+    const progressBar = document.getElementById("progressBar");
+    const kpiPagesVisited = document.getElementById("kpiPagesVisited");
+    const kpiPagesSub = document.getElementById("kpiPagesSub");
+    const kpiCurrentDepth = document.getElementById("kpiCurrentDepth");
+    const kpiDepthSub = document.getElementById("kpiDepthSub");
+    const kpiLinksCount = document.getElementById("kpiLinksCount");
+    const kpiLinksSub = document.getElementById("kpiLinksSub");
+    const kpiElapsedTime = document.getElementById("kpiElapsedTime");
+    const kpiStatusBadge = document.getElementById("kpiStatusBadge");
+
+    // Live Inspector
+    const liveInspectorCard = document.getElementById("liveInspectorCard");
+    const liveHopBadge = document.getElementById("liveHopBadge");
+    const liveScreenshotImg = document.getElementById("liveScreenshotImg");
+    const noScreenshotPlaceholder = document.getElementById("noScreenshotPlaceholder");
+    const livePageTitle = document.getElementById("livePageTitle");
+    const livePageLink = document.getElementById("livePageLink");
+    const livePageSnippet = document.getElementById("livePageSnippet");
+    const livePathTrail = document.getElementById("livePathTrail");
+
+    // Result Card
+    const resultCard = document.getElementById("resultCard");
+    const resultHopBadge = document.getElementById("resultHopBadge");
+    const resultTitle = document.getElementById("resultTitle");
+    const hopChainWrapper = document.getElementById("hopChainWrapper");
+    const resultSummaryText = document.getElementById("resultSummaryText");
+    const copyPathBtn = document.getElementById("copyPathBtn");
+
+    // Alert Card
+    const alertCard = document.getElementById("alertCard");
+    const alertMessage = document.getElementById("alertMessage");
+
+    // Intermediate Pages
+    const intermediateSection = document.getElementById("intermediateSection");
+    const intermediateCountBadge = document.getElementById("intermediateCountBadge");
+    const visitedTableBody = document.getElementById("visitedTableBody");
+    const filterInput = document.getElementById("filterInput");
+
+    // Screenshot Modal
+    const screenshotModalEl = document.getElementById("screenshotModal");
+    const screenshotModal = new bootstrap.Modal(screenshotModalEl);
+    const modalScreenshotImg = document.getElementById("modalScreenshotImg");
+    const screenshotModalTitle = document.getElementById("screenshotModalTitle");
+
+    // Theme Toggle
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    const themeIcon = document.getElementById("themeIcon");
+
+    // State
+    let socket = null;
+    let timerInterval = null;
+    let startTime = null;
+    let totalLinksAccumulated = 0;
+    let visitedPagesList = [];
+    let currentFoundPath = [];
+    let maxPagesLimit = 35;
+
+    // --- Theme Handling ---
+    function initTheme() {
+        const savedTheme = localStorage.getItem("wikihop-theme") || "dark";
+        document.documentElement.setAttribute("data-bs-theme", savedTheme);
+        updateThemeIcon(savedTheme);
+    }
+
+    function updateThemeIcon(theme) {
+        if (theme === "dark") {
+            themeIcon.className = "bi bi-sun-fill";
+        } else {
+            themeIcon.className = "bi bi-moon-fill";
+        }
+    }
+
+    themeToggleBtn.addEventListener("click", () => {
+        const currentTheme = document.documentElement.getAttribute("data-bs-theme");
+        const nextTheme = currentTheme === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-bs-theme", nextTheme);
+        localStorage.setItem("wikihop-theme", nextTheme);
+        updateThemeIcon(nextTheme);
+    });
+
+    initTheme();
+
+    // --- Slider Badges ---
+    maxPagesInput.addEventListener("input", (e) => {
+        maxPagesBadge.textContent = e.target.value;
+        maxPagesLimit = parseInt(e.target.value);
+    });
+
+    maxDepthInput.addEventListener("input", (e) => {
+        maxDepthBadge.textContent = e.target.value;
+    });
+
+    // --- Swap Button ---
+    swapBtn.addEventListener("click", () => {
+        const temp = startInput.value;
+        startInput.value = targetInput.value;
+        targetInput.value = temp;
+    });
+
+    // --- Clear Buttons ---
+    document.querySelectorAll(".clear-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("data-target");
+            const input = document.getElementById(targetId);
+            if (input) {
+                input.value = "";
+                input.focus();
+            }
+        });
+    });
+
+    // --- Autocomplete Setup ---
+    function setupAutocomplete(inputEl, dropdownEl) {
+        let debounceTimer = null;
+
+        inputEl.addEventListener("input", () => {
+            clearTimeout(debounceTimer);
+            const val = inputEl.value.trim();
+            if (val.length < 2) {
+                dropdownEl.classList.add("d-none");
+                dropdownEl.innerHTML = "";
+                return;
+            }
+
+            debounceTimer = setTimeout(async () => {
+                try {
+                    const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}`);
+                    const data = await res.json();
+                    renderSuggestions(data.results || [], inputEl, dropdownEl);
+                } catch (e) {
+                    console.error("Autocomplete fetch error:", e);
+                }
+            }, 250);
+        });
+
+        // Hide when clicking outside
+        document.addEventListener("click", (e) => {
+            if (!inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
+                dropdownEl.classList.add("d-none");
+            }
+        });
+    }
+
+    function renderSuggestions(results, inputEl, dropdownEl) {
+        if (!results.length) {
+            dropdownEl.classList.add("d-none");
+            dropdownEl.innerHTML = "";
+            return;
+        }
+
+        dropdownEl.innerHTML = "";
+        results.forEach((item) => {
+            const a = document.createElement("a");
+            a.className = "list-group-item list-group-item-action d-flex flex-column py-2";
+            a.href = "#";
+            a.innerHTML = `
+                <div class="fw-semibold text-body-emphasis">${escapeHtml(item.title)}</div>
+                ${item.description ? `<small class="text-secondary text-truncate">${escapeHtml(item.description)}</small>` : ""}
+            `;
+            a.addEventListener("click", (e) => {
+                e.preventDefault();
+                inputEl.value = item.title;
+                dropdownEl.classList.add("d-none");
+            });
+            dropdownEl.appendChild(a);
+        });
+        dropdownEl.classList.remove("d-none");
+    }
+
+    setupAutocomplete(startInput, startSuggestions);
+    setupAutocomplete(targetInput, targetSuggestions);
+
+    // --- Load Presets ---
+    async function loadPresets() {
+        try {
+            const res = await fetch("/api/presets");
+            const data = await res.json();
+            presetsContainer.innerHTML = "";
+            (data.presets || []).forEach((p) => {
+                const chip = document.createElement("span");
+                chip.className = "preset-chip text-body-secondary";
+                chip.innerHTML = `${escapeHtml(p.start)} &rarr; ${escapeHtml(p.target)}`;
+                chip.title = `${p.category}: ${p.description}`;
+                chip.addEventListener("click", () => {
+                    startInput.value = p.start;
+                    targetInput.value = p.target;
+                });
+                presetsContainer.appendChild(chip);
+            });
+        } catch (e) {
+            console.error("Error loading presets:", e);
+        }
+    }
+    loadPresets();
+
+    // --- Filter Visited Pages ---
+    filterInput.addEventListener("input", () => {
+        const query = filterInput.value.toLowerCase();
+        const rows = visitedTableBody.querySelectorAll("tr");
+        rows.forEach((row) => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(query) ? "" : "none";
+        });
+    });
+
+    // --- Copy Path Button ---
+    copyPathBtn.addEventListener("click", () => {
+        if (!currentFoundPath.length) return;
+        const text = currentFoundPath.join(" ➔ ") + ` (${currentFoundPath.length - 1} hops)`;
+        navigator.clipboard.writeText(text).then(() => {
+            const orig = copyPathBtn.innerHTML;
+            copyPathBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Copied!`;
+            setTimeout(() => (copyPathBtn.innerHTML = orig), 2000);
+        });
+    });
+
+    // --- WebSocket Connection ---
+    function connectWebSocket() {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws/search`;
+
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+            console.log("WebSocket connected to WikiHop server.");
+        };
+
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                handleServerMessage(data);
+            } catch (err) {
+                console.error("Failed to parse WebSocket message:", err);
+            }
+        };
+
+        socket.onclose = () => {
+            console.log("WebSocket closed. Attempting reconnect in 2s...");
+            setTimeout(connectWebSocket, 2000);
+        };
+
+        socket.onerror = (err) => {
+            console.error("WebSocket error:", err);
+        };
+    }
+    connectWebSocket();
+
+    // --- Form Submit: Start Crawl ---
+    searchForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const start = startInput.value.trim();
+        const target = targetInput.value.trim();
+
+        if (!start || !target) return;
+
+        // Reset UI state
+        resetUI();
+
+        const payload = {
+            action: "start",
+            start: start,
+            target: target,
+            algorithm: algorithmSelect.value,
+            max_pages: parseInt(maxPagesInput.value),
+            max_depth: parseInt(maxDepthInput.value),
+            capture_screenshots: screenshotToggle.checked,
+            headless: headlessToggle.checked,
+        };
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(payload));
+        } else {
+            alert("WebSocket is not connected. Please refresh the page.");
+        }
+    });
+
+    // --- Stop Button ---
+    stopBtn.addEventListener("click", () => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ action: "stop" }));
+        }
+        setRunningState(false);
+    });
+
+    // --- Handle Incoming Server Messages ---
+    function handleServerMessage(data) {
+        const eventType = data.event;
+
+        if (eventType === "started") {
+            setRunningState(true);
+            startTimer();
+            maxPagesLimit = data.max_pages || 35;
+            kpiPagesSub.textContent = `Target: max ${maxPagesLimit}`;
+            kpiStatusBadge.textContent = "Playwright navigating...";
+            statsSection.classList.remove("d-none");
+            liveInspectorCard.classList.remove("d-none");
+            intermediateSection.classList.remove("d-none");
+
+        } else if (eventType === "visiting") {
+            const page = data.page;
+            const totalVisited = data.total_visited;
+
+            visitedPagesList.push(page);
+            totalLinksAccumulated += page.links_count || 0;
+
+            // Update Progress Bar
+            const pct = Math.min(Math.round((totalVisited / maxPagesLimit) * 100), 98);
+            progressBar.style.width = `${pct}%`;
+
+            // Update KPIs
+            kpiPagesVisited.textContent = totalVisited;
+            kpiCurrentDepth.textContent = page.depth;
+            kpiDepthSub.textContent = `Hop level ${page.depth}`;
+            kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
+            kpiLinksSub.textContent = `+${page.links_count} from this page`;
+
+            // Update Live Inspector Card
+            liveHopBadge.textContent = `Hop ${page.depth}`;
+            livePageTitle.textContent = page.title;
+            livePageLink.href = page.url;
+            livePageSnippet.textContent = page.snippet || "Playwright loaded page and analyzed internal links.";
+
+            if (page.screenshot) {
+                liveScreenshotImg.src = page.screenshot;
+                liveScreenshotImg.classList.remove("d-none");
+                noScreenshotPlaceholder.classList.add("d-none");
+                liveScreenshotImg.onclick = () => openScreenshotModal(page.title, page.screenshot);
+            } else {
+                liveScreenshotImg.classList.add("d-none");
+                noScreenshotPlaceholder.classList.remove("d-none");
+            }
+
+            // Update live trail
+            renderLiveTrail(page.path_so_far);
+
+            // Add row to Visited Table
+            appendVisitedTableRow(page);
+            intermediateCountBadge.textContent = visitedPagesList.length;
+
+        } else if (eventType === "found") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.style.width = "100%";
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-success");
+            kpiStatusBadge.textContent = "Path Found!";
+
+            currentFoundPath = data.path;
+            showResultCard(data);
+
+        } else if (eventType === "not_found") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-warning");
+            kpiStatusBadge.textContent = "Limit reached";
+            showAlert(data.message || "Reached maximum search limit without finding target link.");
+
+        } else if (eventType === "cancelled") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-secondary");
+            kpiStatusBadge.textContent = "Crawl stopped";
+            showAlert(data.message || "Search stopped by user.");
+
+        } else if (eventType === "error") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-danger");
+            kpiStatusBadge.textContent = "Error";
+            showAlert(data.message || "An error occurred during crawling.");
+        }
+    }
+
+    // --- Show Result Card ---
+    function showResultCard(data) {
+        resultCard.classList.remove("d-none");
+        resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+        const hops = data.hops;
+        resultHopBadge.textContent = `${hops} Hop${hops === 1 ? "" : "s"} Required`;
+        resultHopBadge.className = `badge ${hops <= 2 ? "bg-success" : "bg-primary"} fs-6 px-3 py-1 rounded-pill`;
+
+        const startTitle = data.path[0];
+        const targetTitle = data.path[data.path.length - 1];
+        resultTitle.innerHTML = `${escapeHtml(startTitle)} &rarr; ${escapeHtml(targetTitle)}`;
+
+        resultSummaryText.innerHTML = `
+            <strong>Target reached!</strong> Playwright inspected <strong>${data.total_visited}</strong> intermediate pages 
+            and found the path to <strong>${escapeHtml(targetTitle)}</strong> in exactly <strong>${hops}</strong> link hop${hops === 1 ? "" : "s"}.
+        `;
+
+        // Render Visual Hop Chain
+        hopChainWrapper.innerHTML = "";
+        data.path.forEach((title, index) => {
+            const isStart = index === 0;
+            const isTarget = index === data.path.length - 1;
+            const url = data.urls ? data.urls[index] : `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+
+            const node = document.createElement("div");
+            node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
+            
+            let icon = isStart ? '<i class="bi bi-geo-alt-fill"></i>' : isTarget ? '<i class="bi bi-flag-fill"></i>' : '<i class="bi bi-link-45deg"></i>';
+            let label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : `Hop ${index}`;
+
+            node.innerHTML = `
+                ${icon}
+                <div class="d-flex flex-column text-start">
+                    <span style="font-size: 0.72rem; text-transform: uppercase; opacity: 0.85;">${label}</span>
+                    <a href="${url}" target="_blank" class="text-reset text-decoration-none fw-bold">${escapeHtml(title)}</a>
+                </div>
+            `;
+            hopChainWrapper.appendChild(node);
+
+            // Add arrow if not last
+            if (index < data.path.length - 1) {
+                const arrow = document.createElement("div");
+                arrow.className = "hop-arrow";
+                arrow.innerHTML = `<i class="bi bi-chevron-right"></i>`;
+                hopChainWrapper.appendChild(arrow);
+            }
+        });
+    }
+
+    // --- Render Live Path Trail ---
+    function renderLiveTrail(pathArray) {
+        if (!pathArray || !pathArray.length) {
+            livePathTrail.innerHTML = `<span class="text-muted">Root</span>`;
+            return;
+        }
+        livePathTrail.innerHTML = "";
+        pathArray.forEach((item, idx) => {
+            const span = document.createElement("span");
+            span.className = "badge bg-body border text-body-emphasis";
+            span.textContent = item;
+            livePathTrail.appendChild(span);
+
+            if (idx < pathArray.length - 1) {
+                const sep = document.createElement("span");
+                sep.className = "text-muted";
+                sep.innerHTML = "&rarr;";
+                livePathTrail.appendChild(sep);
+            }
+        });
+    }
+
+    // --- Visited Table Row ---
+    function appendVisitedTableRow(page) {
+        const tr = document.createElement("tr");
+
+        let thumbHtml = '<span class="text-muted small">None</span>';
+        if (page.screenshot) {
+            thumbHtml = `<img src="${page.screenshot}" class="table-thumb" alt="thumbnail" title="Click to view full screenshot">`;
+        }
+
+        tr.innerHTML = `
+            <td class="fw-bold text-secondary">#${page.step}</td>
+            <td>${thumbHtml}</td>
+            <td>
+                <div class="fw-semibold">
+                    <a href="${page.url}" target="_blank" class="text-body-emphasis text-decoration-none">
+                        ${escapeHtml(page.title)} <i class="bi bi-box-arrow-up-right text-muted small ms-1"></i>
+                    </a>
+                </div>
+            </td>
+            <td>
+                <span class="badge ${page.depth === 0 ? "text-bg-success" : page.depth === 1 ? "text-bg-info" : "text-bg-secondary"}">
+                    Hop ${page.depth}
+                </span>
+            </td>
+            <td>
+                <span class="fw-semibold font-monospace">${page.links_count.toLocaleString()}</span> links
+            </td>
+            <td>
+                <small class="text-secondary d-inline-block text-truncate" style="max-width: 320px;" title="${escapeHtml(page.snippet)}">
+                    ${escapeHtml(page.snippet || "—")}
+                </small>
+            </td>
+        `;
+
+        // If thumbnail clicked, open modal
+        if (page.screenshot) {
+            const imgEl = tr.querySelector(".table-thumb");
+            if (imgEl) {
+                imgEl.addEventListener("click", () => openScreenshotModal(page.title, page.screenshot));
+            }
+        }
+
+        visitedTableBody.appendChild(tr);
+    }
+
+    // --- Screenshot Modal ---
+    function openScreenshotModal(title, base64Src) {
+        screenshotModalTitle.textContent = `Playwright Capture: ${title}`;
+        modalScreenshotImg.src = base64Src;
+        screenshotModal.show();
+    }
+
+    // --- Alerts ---
+    function showAlert(msg) {
+        alertMessage.textContent = msg;
+        alertCard.classList.remove("d-none");
+    }
+
+    // --- State UI Control ---
+    function setRunningState(isRunning) {
+        if (isRunning) {
+            startBtn.classList.add("d-none");
+            stopBtn.classList.remove("d-none");
+            startInput.disabled = true;
+            targetInput.disabled = true;
+            swapBtn.disabled = true;
+        } else {
+            startBtn.classList.remove("d-none");
+            stopBtn.classList.add("d-none");
+            startInput.disabled = false;
+            targetInput.disabled = false;
+            swapBtn.disabled = false;
+        }
+    }
+
+    function resetUI() {
+        visitedPagesList = [];
+        totalLinksAccumulated = 0;
+        currentFoundPath = [];
+
+        progressBar.style.width = "0%";
+        progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-primary";
+
+        kpiPagesVisited.textContent = "0";
+        kpiCurrentDepth.textContent = "0";
+        kpiLinksCount.textContent = "0";
+        kpiElapsedTime.textContent = "0.0s";
+        kpiStatusBadge.textContent = "Initializing...";
+
+        resultCard.classList.add("d-none");
+        alertCard.classList.add("d-none");
+        visitedTableBody.innerHTML = "";
+        intermediateCountBadge.textContent = "0";
+
+        livePageTitle.textContent = "Launching Playwright...";
+        livePageSnippet.textContent = "Opening Chromium browser instance...";
+        liveScreenshotImg.classList.add("d-none");
+        noScreenshotPlaceholder.classList.remove("d-none");
+    }
+
+    // --- Timer ---
+    function startTimer() {
+        clearInterval(timerInterval);
+        startTime = Date.now();
+        timerInterval = setInterval(() => {
+            const elapsed = (Date.now() - startTime) / 1000;
+            kpiElapsedTime.textContent = `${elapsed.toFixed(1)}s`;
+        }, 100);
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+    }
+
+    // --- Helper: Escape HTML ---
+    function escapeHtml(str) {
+        if (!str) return "";
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+});
