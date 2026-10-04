@@ -1,7 +1,8 @@
 """
 Wikipedia Link Hop Crawler using Playwright.
 Navigates Wikipedia pages to find the shortest or heuristic link path
-between two articles and reports intermediate visited pages in real-time.
+between two articles, reports intermediate visited pages in real-time,
+and extracts 150 words of context before and after the connecting links.
 """
 
 import asyncio
@@ -131,7 +132,6 @@ def compute_relevance_score(
     target_lower = target_title.lower()
     target_s_lower = target_slug.lower()
 
-    # Direct match or exact substring
     if target_lower == link_lower or target_s_lower == slug_lower:
         return 1000.0
     
@@ -140,17 +140,14 @@ def compute_relevance_score(
     elif link_lower in target_lower or slug_lower in target_s_lower:
         score += 90.0
 
-    # Token overlap with target title
     target_tokens = set(re.findall(r"\w+", target_lower))
     link_tokens = set(re.findall(r"\w+", link_lower + " " + slug_lower.replace("_", " ")))
     overlap = target_tokens.intersection(link_tokens)
     score += len(overlap) * 40.0
 
-    # Overlap with target summary keywords / context
     keyword_overlap = target_keywords.intersection(link_tokens)
     score += len(keyword_overlap) * 12.0
 
-    # Hub concepts that bridge topics
     hubs = {
         "united_states", "united_kingdom", "europe", "north_america", "asia", 
         "world", "earth", "country", "city", "history", "geography", "government",
@@ -193,6 +190,7 @@ class WikipediaCrawler:
         max_depth: int = 5,
         headless: bool = True,
         capture_screenshots: bool = True,
+        context_words: int = 150,
     ):
         self.start_input = start_input
         self.target_input = target_input
@@ -201,6 +199,7 @@ class WikipediaCrawler:
         self.max_depth = max(1, min(max_depth, 6))
         self.headless = headless
         self.capture_screenshots = capture_screenshots
+        self.context_words = max(20, min(context_words, 500))
         self.cancel_requested = False
 
     def cancel(self):
@@ -226,6 +225,7 @@ class WikipediaCrawler:
             "algorithm": self.algorithm,
             "max_pages": self.max_pages,
             "max_depth": self.max_depth,
+            "context_words": self.context_words,
         }
 
         # Check trivial case: Start == Target
@@ -238,6 +238,7 @@ class WikipediaCrawler:
                 "urls": [start_info["url"]],
                 "total_visited": 1,
                 "intermediate_pages": [],
+                "link_context": None,
                 "message": "Start and target pages are identical! 0 hops required.",
             }
             return
@@ -275,11 +276,9 @@ class WikipediaCrawler:
             try:
                 while queue and visited_count < self.max_pages and not self.cancel_requested:
                     if self.algorithm == "heuristic":
-                        # Sort by highest score first, then smallest depth
                         queue.sort(key=lambda item: (-item[0], item[1]))
                         score, depth, current_slug, current_title, path_titles, path_slugs = queue.pop(0)
                     else:
-                        # BFS: FIFO
                         score, depth, current_slug, current_title, path_titles, path_slugs = queue.pop(0)
 
                     slug_key = current_slug.lower()
@@ -417,6 +416,96 @@ class WikipediaCrawler:
                         final_urls = [f"https://en.wikipedia.org/wiki/{s}" for s in final_path_slugs]
                         hops = len(final_path_titles) - 1
 
+                        # EXTRACT CONTEXT (150 words before and 150 words after the target link)
+                        extracted_context = None
+                        try:
+                            extracted_context = await page.evaluate(
+                                """args => {
+                                    const targetSlug = args.targetSlug.toLowerCase();
+                                    const wordsBeforeCount = args.wordsBeforeCount;
+                                    const wordsAfterCount = args.wordsAfterCount;
+                                    const body = document.querySelector('#bodyContent') || document.body;
+                                    
+                                    // Locate the anchor tag
+                                    const anchors = Array.from(body.querySelectorAll('a[href]'));
+                                    let targetAnchor = anchors.find(a => {
+                                        const href = (a.getAttribute('href') || '').toLowerCase();
+                                        return href.includes('/wiki/' + targetSlug) || href.endsWith('/' + targetSlug);
+                                    });
+
+                                    if (!targetAnchor) {
+                                        targetAnchor = anchors.find(a => {
+                                            const text = (a.innerText || '').toLowerCase().trim();
+                                            const title = (a.getAttribute('title') || '').toLowerCase().trim();
+                                            const cleanSlug = targetSlug.replace(/_/g, ' ');
+                                            return text === cleanSlug || title === cleanSlug;
+                                        });
+                                    }
+
+                                    // Bidirectional TreeWalker starting at targetAnchor
+                                    const walkerBefore = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
+                                    walkerBefore.currentNode = targetAnchor;
+                                    const wordsBefore = [];
+                                    let prevNode;
+                                    while (wordsBefore.length < wordsBeforeCount && (prevNode = walkerBefore.previousNode())) {
+                                        const parent = prevNode.parentElement;
+                                        if (!parent || parent.closest('script, style, #mw-navigation, #footer')) continue;
+                                        const txt = prevNode.textContent.trim();
+                                        if (!txt) continue;
+                                        const tokens = txt.split(/\\s+/).filter(Boolean);
+                                        for (let i = tokens.length - 1; i >= 0 && wordsBefore.length < wordsBeforeCount; i--) {
+                                            wordsBefore.unshift(tokens[i]);
+                                        }
+                                    }
+
+                                    const walkerAfter = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
+                                    walkerAfter.currentNode = targetAnchor;
+                                    const wordsAfter = [];
+                                    let nextNode;
+                                    while (wordsAfter.length < wordsAfterCount && (nextNode = walkerAfter.nextNode())) {
+                                        if (targetAnchor.contains(nextNode)) continue;
+                                        const parent = nextNode.parentElement;
+                                        if (!parent || parent.closest('script, style, #mw-navigation, #footer')) continue;
+                                        const txt = nextNode.textContent.trim();
+                                        if (!txt) continue;
+                                        const tokens = txt.split(/\\s+/).filter(Boolean);
+                                        for (let i = 0; i < tokens.length && wordsAfter.length < wordsAfterCount; i++) {
+                                            wordsAfter.push(tokens[i]);
+                                        }
+                                    }
+
+                                    return {
+                                        anchorText: targetAnchor.innerText.trim() || targetAnchor.getAttribute('title') || '',
+                                        wordsBefore: wordsBefore.join(' '),
+                                        wordsAfter: wordsAfter.join(' '),
+                                        beforeCount: wordsBefore.length,
+                                        afterCount: wordsAfter.length
+                                    };
+                                }""",
+                                {
+                                    "targetSlug": target_match["slug"],
+                                    "wordsBeforeCount": self.context_words,
+                                    "wordsAfterCount": self.context_words,
+                                }
+                            )
+                        except Exception as ctx_err:
+                            logger.warning(f"Error extracting link context: {ctx_err}")
+
+                        link_context = {
+                            "source_title": clean_title,
+                            "source_slug": current_slug,
+                            "source_url": page_url,
+                            "target_title": matched_title,
+                            "target_slug": target_match["slug"],
+                            "target_url": f"https://en.wikipedia.org/wiki/{target_match['slug']}",
+                            "words_before": extracted_context.get("wordsBefore", "") if extracted_context else "",
+                            "anchor_text": extracted_context.get("anchorText", matched_title) if extracted_context else matched_title,
+                            "words_after": extracted_context.get("wordsAfter", "") if extracted_context else "",
+                            "before_count": extracted_context.get("beforeCount", 0) if extracted_context else 0,
+                            "after_count": extracted_context.get("afterCount", 0) if extracted_context else 0,
+                            "requested_words": self.context_words,
+                        }
+
                         yield {
                             "event": "found",
                             "hops": hops,
@@ -426,6 +515,7 @@ class WikipediaCrawler:
                             "total_visited": visited_count,
                             "intermediate_pages": intermediate_pages,
                             "found_on_page": clean_title,
+                            "link_context": link_context,
                             "message": f"Target reached in {hops} hop{'s' if hops != 1 else ''}! Found link '{matched_title}' after inspecting {visited_count} intermediate pages.",
                         }
                         return
@@ -443,10 +533,8 @@ class WikipediaCrawler:
                             )
                             scored_candidates.append((link_score, c_slug, c_title))
 
-                        # Sort children by relevance
                         scored_candidates.sort(key=lambda x: x[0], reverse=True)
 
-                        # Enqueue top candidates
                         branch_limit = 25 if self.algorithm == "heuristic" else 15
                         for l_score, c_slug, c_title in scored_candidates[:branch_limit]:
                             queue.append((

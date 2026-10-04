@@ -6,6 +6,8 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
 
 ## ✨ Features
 
+- **Connecting Link Context (150 Words Before & After)**: Extracts and presents the surrounding ~150 words before and ~150 words after the connecting link in the source article with full link highlighting, word counts, and one-click copy.
+- **Dedicated Settings Panel**: Customize the surrounding context length (slider from 25 to 350+ words), switch search algorithms, configure max page and hop depth limits, and toggle live screenshots.
 - **Automated Playwright Traversal**: Uses Microsoft Playwright (Chromium/Edge) to load actual Wikipedia pages, execute in-page DOM parsing, extract all internal links, and detect connections.
 - **Degrees of Separation (Hop Counter)**: Counts intermediate hops taken to find the target page.
 - **Full Intermediate Pages Log**: Displays every single intermediate page visited by Playwright, complete with:
@@ -21,7 +23,7 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
   - **Breadth-First Search (BFS)**: Systematically checks pages level by level to discover the shortest path.
 - **Wikipedia Autocomplete**: Real-time article suggestions as you type in the start or target fields.
 - **Quick Presets**: One-click exploration of popular Wikipedia pairings (e.g., *London &rarr; New York City*, *Python &rarr; Philosophy*, *Albert Einstein &rarr; Moon*).
-- **Responsive Bootstrap 5 UI**: Clean, modern interface with dark/light mode toggle, progress indicators, and interactive modals.
+- **Responsive Bootstrap 5 UI**: Clean, modern interface with dark/light mode toggle, progress indicators, settings modal, and interactive modals.
 
 ---
 

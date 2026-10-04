@@ -163,6 +163,56 @@ body {
     font-size: 1.25rem;
 }
 
+/* Connecting Link Context Box */
+.context-icon-badge {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+    border-radius: 8px;
+}
+
+.context-blockquote {
+    border-left: 4px solid #3b82f6 !important;
+    position: relative;
+    overflow: hidden;
+    line-height: 1.7;
+    background-color: var(--bs-body-bg);
+}
+
+.context-watermark {
+    position: absolute;
+    right: 15px;
+    bottom: -15px;
+    font-size: 5rem;
+    line-height: 1;
+    opacity: 0.04;
+    user-select: none;
+    pointer-events: none;
+}
+
+.context-text {
+    font-size: 0.98rem;
+    line-height: 1.75;
+    position: relative;
+    z-index: 1;
+}
+
+.link-highlight {
+    background: #3b82f6 !important;
+    color: #ffffff !important;
+    display: inline-block;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+    transition: all 0.2s ease;
+}
+
+.link-highlight:hover {
+    transform: scale(1.05);
+}
+
 /* Preset Chips */
 .preset-chip {
     cursor: pointer;

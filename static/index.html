@@ -10,7 +10,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -25,11 +25,18 @@
                 </span>
                 <span>WikiHop</span>
             </a>
-            <div class="d-flex align-items-center gap-3">
-                <span class="badge rounded-pill text-bg-primary px-3 py-2 d-none d-sm-inline-flex align-items-center gap-1">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge rounded-pill text-bg-primary px-3 py-2 d-none d-md-inline-flex align-items-center gap-1">
                     <i class="bi bi-play-circle-fill"></i> Powered by Playwright
                 </span>
-                <button class="btn btn-sm btn-outline-secondary rounded-circle theme-toggle-btn" id="themeToggleBtn" title="Toggle Theme">
+                <!-- Settings Button -->
+                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 rounded-pill px-3" 
+                        data-bs-toggle="modal" data-bs-target="#settingsModal" title="Open Crawler & Context Settings">
+                    <i class="bi bi-gear-fill"></i>
+                    <span>Settings</span>
+                </button>
+                <!-- Theme Toggle Button -->
+                <button class="btn btn-sm btn-outline-secondary rounded-circle theme-toggle-btn" id="themeToggleBtn" title="Toggle Dark/Light Theme">
                     <i class="bi bi-sun-fill" id="themeIcon"></i>
                 </button>
             </div>
@@ -42,10 +49,10 @@
         <!-- Header / Intro Banner -->
         <div class="text-center mb-4">
             <h1 class="display-6 fw-extrabold text-body-emphasis mb-2">Wikipedia Link Hop Counter</h1>
-            <p class="text-secondary lead mx-auto" style="max-width: 680px; font-size: 1.05rem;">
-                Pick any two Wikipedia articles. Using a headless <strong>Playwright</strong> browser, 
-                WikiHop navigates the live web, checks all internal links, tracks every intermediate page visited, 
-                and calculates the degrees of separation between your chosen pages.
+            <p class="text-secondary lead mx-auto" style="max-width: 700px; font-size: 1.05rem;">
+                Pick any two Wikipedia articles. Using a live <strong>Playwright</strong> browser, 
+                WikiHop traverses the live web, logs every intermediate page visited, counts the link hops,
+                and reveals the exact <strong>150 words of context before and after</strong> the connecting links.
             </p>
         </div>
 
@@ -110,66 +117,22 @@
                         </div>
                     </div>
 
-                    <!-- Advanced Settings Collapsible -->
-                    <div class="accordion accordion-flush mt-3" id="settingsAccordion">
-                        <div class="accordion-item bg-transparent border-0">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed px-0 py-2 bg-transparent text-secondary small fw-medium" type="button" data-bs-toggle="collapse" data-bs-target="#advancedSettings">
-                                    <i class="bi bi-sliders2 me-2"></i> Advanced Crawler Settings
-                                </button>
-                            </h2>
-                            <div id="advancedSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
-                                <div class="accordion-body px-0 pt-3 pb-1">
-                                    <div class="row g-3">
-                                        
-                                        <!-- Search Strategy -->
-                                        <div class="col-md-4">
-                                            <label class="form-label small fw-semibold text-secondary">Search Strategy</label>
-                                            <select class="form-select form-select-sm" id="algorithmSelect">
-                                                <option value="heuristic" selected>Smart Relevance (A* / Best-First) - Recommended</option>
-                                                <option value="bfs">Breadth-First Search (BFS) - Shortest Hop</option>
-                                            </select>
-                                            <div class="form-text small">Smart relevance scores candidate links to find paths rapidly.</div>
-                                        </div>
-
-                                        <!-- Max Pages Limit -->
-                                        <div class="col-md-4">
-                                            <label for="maxPagesInput" class="form-label small fw-semibold text-secondary">
-                                                Max Pages to Explore: <span class="badge bg-secondary" id="maxPagesBadge">35</span>
-                                            </label>
-                                            <input type="range" class="form-range" id="maxPagesInput" min="5" max="80" step="5" value="35">
-                                            <div class="form-text small">Caps intermediate pages Playwright will visit.</div>
-                                        </div>
-
-                                        <!-- Max Depth / Hops -->
-                                        <div class="col-md-4">
-                                            <label for="maxDepthInput" class="form-label small fw-semibold text-secondary">
-                                                Max Hop Depth: <span class="badge bg-secondary" id="maxDepthBadge">5</span>
-                                            </label>
-                                            <input type="range" class="form-range" id="maxDepthInput" min="1" max="6" step="1" value="5">
-                                            <div class="form-text small">Limits maximum degrees of separation.</div>
-                                        </div>
-
-                                        <!-- Toggles -->
-                                        <div class="col-12 d-flex flex-wrap gap-4 pt-1">
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" type="checkbox" id="screenshotToggle" checked>
-                                                <label class="form-check-label small" for="screenshotToggle">
-                                                    Capture live Playwright screenshots
-                                                </label>
-                                            </div>
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" type="checkbox" id="headlessToggle" checked>
-                                                <label class="form-check-label small" for="headlessToggle">
-                                                    Headless Mode (faster)
-                                                </label>
-                                            </div>
-                                        </div>
-
-                                    </div>
-                                </div>
-                            </div>
+                    <!-- Active Settings Bar & Quick Toggle -->
+                    <div class="mt-3 pt-2 border-top d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="d-flex flex-wrap align-items-center gap-2 small">
+                            <span class="badge text-bg-secondary" id="summaryContextBadge">
+                                <i class="bi bi-quote me-1"></i> Context: 150 words
+                            </span>
+                            <span class="badge text-bg-secondary" id="summaryStrategyBadge">
+                                <i class="bi bi-cpu me-1"></i> Smart Relevance
+                            </span>
+                            <span class="badge text-bg-secondary" id="summaryLimitBadge">
+                                <i class="bi bi-speedometer2 me-1"></i> Max 35 Pages
+                            </span>
                         </div>
+                        <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                            <i class="bi bi-sliders me-1"></i> Adjust Settings
+                        </button>
                     </div>
 
                     <!-- Action Buttons -->
@@ -220,7 +183,7 @@
                 <div class="col-6 col-md-3">
                     <div class="card border-0 shadow-sm metric-card p-3 text-center">
                         <div class="text-secondary small fw-bold text-uppercase mb-1">
-                            <i class="bi bi-link-45deg text-success me-1"></i> Outgoing Links Evaluated
+                            <i class="bi bi-link-45deg text-success me-1"></i> Outgoing Links Scanned
                         </div>
                         <div class="fs-2 fw-extrabold text-body-emphasis" id="kpiLinksCount">0</div>
                         <div class="text-muted small" id="kpiLinksSub">Playwright parsed</div>
@@ -317,9 +280,65 @@
                     </div>
                 </div>
 
-                <div class="alert alert-info d-flex align-items-center mt-3 mb-0" role="alert">
-                    <i class="bi bi-info-circle-fill fs-5 me-2"></i>
+                <div class="alert alert-info d-flex align-items-center mt-3 mb-4" role="alert">
+                    <i class="bi bi-info-circle-fill fs-5 me-2 flex-shrink-0"></i>
                     <div id="resultSummaryText">Summary details of the search path found.</div>
+                </div>
+
+                <!-- Final Connecting Link Context Section (150 words before and 150 words after) -->
+                <div class="card border-0 bg-body-tertiary shadow-sm rounded-4 overflow-hidden" id="contextCard">
+                    <div class="card-header bg-body border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="context-icon-badge">
+                                <i class="bi bi-quote fs-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="mb-0 fw-bold">Connecting Link Context</h5>
+                                <small class="text-secondary" id="contextSubTitle">Surrounding article text where the final connection was discovered</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle" id="contextBadgeWords">
+                                150 words before & after
+                            </span>
+                            <button class="btn btn-sm btn-outline-secondary" id="copyContextBtn" title="Copy context snippet to clipboard">
+                                <i class="bi bi-clipboard me-1"></i> Copy Context
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        
+                        <!-- Metadata Pill Bar -->
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3 text-secondary small">
+                            <span>Found in article: <strong class="text-body-emphasis" id="contextSourceTitle">Source Article</strong></span>
+                            <span>&bull;</span>
+                            <span>Anchor target: <strong class="text-primary" id="contextTargetTitle">Target Link</strong></span>
+                            <span>&bull;</span>
+                            <a id="contextSourceLink" href="#" target="_blank" class="text-decoration-none">
+                                <i class="bi bi-box-arrow-up-right"></i> Open on Wikipedia
+                            </a>
+                        </div>
+
+                        <!-- Context Text Block -->
+                        <div class="context-blockquote p-4 rounded-3 bg-body border position-relative">
+                            <div class="context-watermark"><i class="bi bi-quote"></i></div>
+                            <p class="mb-0 context-text lead" id="contextTextContainer">
+                                <span class="text-secondary" id="contextBefore">...</span>
+                                <mark class="link-highlight mx-1 px-2 py-1 rounded fw-bold text-white bg-primary" id="contextAnchor">Link</mark>
+                                <span class="text-secondary" id="contextAfter">...</span>
+                            </p>
+                        </div>
+
+                        <!-- Word Count Stats Footer -->
+                        <div class="d-flex justify-content-between align-items-center mt-3 text-muted small">
+                            <div>
+                                <span class="badge bg-secondary-subtle text-secondary me-1" id="wordsBeforeCount">150</span> words before &bull;
+                                <span class="badge bg-secondary-subtle text-secondary ms-1 me-1" id="wordsAfterCount">150</span> words after
+                            </div>
+                            <span class="fst-italic text-secondary">Surrounding text extracted live by Playwright DOM analysis</span>
+                        </div>
+
+                    </div>
                 </div>
 
             </div>
@@ -375,6 +394,126 @@
 
     </main>
 
+    <!-- Settings Modal -->
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content bg-body border-0 shadow-lg">
+                <div class="modal-header border-bottom py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="brand-icon" style="width: 32px; height: 32px; font-size: 1rem;">
+                            <i class="bi bi-sliders"></i>
+                        </div>
+                        <h5 class="modal-title fw-bold" id="settingsModalLabel">WikiHop Settings</h5>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    
+                    <!-- Section 1: Context Extraction Settings -->
+                    <div class="mb-4">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-quote text-primary fs-5"></i>
+                            <h6 class="fw-bold mb-0 text-body-emphasis">Connecting Link Context</h6>
+                        </div>
+                        <p class="text-secondary small mb-3">
+                            Configure how many words before and after the connecting link are extracted by Playwright for context.
+                        </p>
+                        
+                        <div class="card bg-body-tertiary border-0 p-3 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label for="modalContextWords" class="form-label fw-semibold small mb-0">
+                                    Words Before & After Final Link:
+                                </label>
+                                <span class="badge bg-primary px-3 py-1 fs-6" id="modalContextWordsBadge">150 words</span>
+                            </div>
+                            <input type="range" class="form-range" id="modalContextWords" min="25" max="350" step="25" value="150">
+                            <div class="d-flex justify-content-between text-muted" style="font-size: 0.75rem;">
+                                <span>25 words</span>
+                                <span>150 words (Default)</span>
+                                <span>350 words</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Search Strategy & Limits -->
+                    <div class="mb-4">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-diagram-3 text-info fs-5"></i>
+                            <h6 class="fw-bold mb-0 text-body-emphasis">Search Strategy & Limits</h6>
+                        </div>
+                        
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="modalAlgorithm" class="form-label small fw-semibold text-secondary">Search Algorithm</label>
+                                <select class="form-select form-select-sm" id="modalAlgorithm">
+                                    <option value="heuristic" selected>Smart Relevance (A* / Best-First) - Recommended</option>
+                                    <option value="bfs">Breadth-First Search (BFS) - Shortest Hop</option>
+                                </select>
+                                <div class="form-text small">Smart relevance scores candidate links by topical similarity to reach target rapidly.</div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label for="modalMaxPages" class="form-label small fw-semibold text-secondary mb-0">Max Intermediate Pages:</label>
+                                    <span class="badge bg-secondary" id="modalMaxPagesBadge">35</span>
+                                </div>
+                                <input type="range" class="form-range" id="modalMaxPages" min="5" max="80" step="5" value="35">
+                                <div class="form-text small">Maximum intermediate pages Playwright will navigate.</div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label for="modalMaxDepth" class="form-label small fw-semibold text-secondary mb-0">Max Hop Depth:</label>
+                                    <span class="badge bg-secondary" id="modalMaxDepthBadge">5</span>
+                                </div>
+                                <input type="range" class="form-range" id="modalMaxDepth" min="1" max="6" step="1" value="5">
+                                <div class="form-text small">Maximum degrees of separation permitted.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 3: Browser & Scraping Options -->
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-window-desktop text-success fs-5"></i>
+                            <h6 class="fw-bold mb-0 text-body-emphasis">Playwright Browser Options</h6>
+                        </div>
+
+                        <div class="row g-3 pt-1">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="modalScreenshotToggle" checked>
+                                    <label class="form-check-label small fw-semibold" for="modalScreenshotToggle">
+                                        Capture live Playwright screenshots
+                                    </label>
+                                    <div class="text-muted small">Generates page previews in real-time.</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="modalHeadlessToggle" checked>
+                                    <label class="form-check-label small fw-semibold" for="modalHeadlessToggle">
+                                        Headless Mode
+                                    </label>
+                                    <div class="text-muted small">Runs browser in background for maximum speed.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer border-top py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="resetSettingsBtn">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset to Defaults
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm px-4" data-bs-dismiss="modal" id="saveSettingsBtn">
+                        <i class="bi bi-check2 me-1"></i> Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Full Image Screenshot Modal -->
     <div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -396,7 +535,7 @@
             <p class="mb-1">
                 <strong>WikiHop</strong> &bull; Wikipedia Link Hop Counter built with Playwright, FastAPI & Bootstrap.
             </p>
-            <p class="text-muted mb-0">Explores live Wikipedia article hyperlinks in real-time.</p>
+            <p class="text-muted mb-0">Explores live Wikipedia article hyperlinks and extracts connecting context in real-time.</p>
         </div>
     </footer>
 

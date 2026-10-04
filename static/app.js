@@ -1,10 +1,23 @@
 /**
  * WikiHop Client Application
  * Real-time Wikipedia Link Hop Counter using Playwright & WebSockets
+ * With Settings Modal and 150-word Connecting Link Context
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-    // DOM Elements
+    // --- Default Settings ---
+    const DEFAULT_SETTINGS = {
+        contextWords: 150,
+        algorithm: "heuristic",
+        maxPages: 35,
+        maxDepth: 5,
+        captureScreenshots: true,
+        headless: true,
+    };
+
+    let appSettings = { ...DEFAULT_SETTINGS };
+
+    // --- DOM Elements ---
     const searchForm = document.getElementById("searchForm");
     const startInput = document.getElementById("startInput");
     const targetInput = document.getElementById("targetInput");
@@ -13,16 +26,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const targetSuggestions = document.getElementById("targetSuggestions");
     const presetsContainer = document.getElementById("presetsContainer");
 
-    const algorithmSelect = document.getElementById("algorithmSelect");
-    const maxPagesInput = document.getElementById("maxPagesInput");
-    const maxPagesBadge = document.getElementById("maxPagesBadge");
-    const maxDepthInput = document.getElementById("maxDepthInput");
-    const maxDepthBadge = document.getElementById("maxDepthBadge");
-    const screenshotToggle = document.getElementById("screenshotToggle");
-    const headlessToggle = document.getElementById("headlessToggle");
-
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
+
+    // Settings Modal Elements
+    const modalContextWords = document.getElementById("modalContextWords");
+    const modalContextWordsBadge = document.getElementById("modalContextWordsBadge");
+    const modalAlgorithm = document.getElementById("modalAlgorithm");
+    const modalMaxPages = document.getElementById("modalMaxPages");
+    const modalMaxPagesBadge = document.getElementById("modalMaxPagesBadge");
+    const modalMaxDepth = document.getElementById("modalMaxDepth");
+    const modalMaxDepthBadge = document.getElementById("modalMaxDepthBadge");
+    const modalScreenshotToggle = document.getElementById("modalScreenshotToggle");
+    const modalHeadlessToggle = document.getElementById("modalHeadlessToggle");
+    const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+    const resetSettingsBtn = document.getElementById("resetSettingsBtn");
+
+    // Summary Badges in Search Card
+    const summaryContextBadge = document.getElementById("summaryContextBadge");
+    const summaryStrategyBadge = document.getElementById("summaryStrategyBadge");
+    const summaryLimitBadge = document.getElementById("summaryLimitBadge");
 
     // Stats & KPI
     const statsSection = document.getElementById("statsSection");
@@ -46,13 +69,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const livePageSnippet = document.getElementById("livePageSnippet");
     const livePathTrail = document.getElementById("livePathTrail");
 
-    // Result Card
+    // Result Card & Hop Chain
     const resultCard = document.getElementById("resultCard");
     const resultHopBadge = document.getElementById("resultHopBadge");
     const resultTitle = document.getElementById("resultTitle");
     const hopChainWrapper = document.getElementById("hopChainWrapper");
     const resultSummaryText = document.getElementById("resultSummaryText");
     const copyPathBtn = document.getElementById("copyPathBtn");
+
+    // Connecting Link Context Card
+    const contextCard = document.getElementById("contextCard");
+    const contextBadgeWords = document.getElementById("contextBadgeWords");
+    const contextSubTitle = document.getElementById("contextSubTitle");
+    const copyContextBtn = document.getElementById("copyContextBtn");
+    const contextSourceTitle = document.getElementById("contextSourceTitle");
+    const contextTargetTitle = document.getElementById("contextTargetTitle");
+    const contextSourceLink = document.getElementById("contextSourceLink");
+    const contextBefore = document.getElementById("contextBefore");
+    const contextAnchor = document.getElementById("contextAnchor");
+    const contextAfter = document.getElementById("contextAfter");
+    const wordsBeforeCount = document.getElementById("wordsBeforeCount");
+    const wordsAfterCount = document.getElementById("wordsAfterCount");
 
     // Alert Card
     const alertCard = document.getElementById("alertCard");
@@ -74,14 +111,80 @@ document.addEventListener("DOMContentLoaded", () => {
     const themeToggleBtn = document.getElementById("themeToggleBtn");
     const themeIcon = document.getElementById("themeIcon");
 
-    // State
+    // Internal State
     let socket = null;
     let timerInterval = null;
     let startTime = null;
     let totalLinksAccumulated = 0;
     let visitedPagesList = [];
     let currentFoundPath = [];
-    let maxPagesLimit = 35;
+    let currentLinkContext = null;
+
+    // --- Load & Save Settings ---
+    function loadSavedSettings() {
+        try {
+            const raw = localStorage.getItem("wikihop-settings");
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                appSettings = { ...DEFAULT_SETTINGS, ...parsed };
+            }
+        } catch (e) {
+            console.error("Error reading saved settings:", e);
+        }
+        syncSettingsToUI();
+    }
+
+    function saveSettings() {
+        appSettings.contextWords = parseInt(modalContextWords.value) || 150;
+        appSettings.algorithm = modalAlgorithm.value;
+        appSettings.maxPages = parseInt(modalMaxPages.value) || 35;
+        appSettings.maxDepth = parseInt(modalMaxDepth.value) || 5;
+        appSettings.captureScreenshots = modalScreenshotToggle.checked;
+        appSettings.headless = modalHeadlessToggle.checked;
+
+        localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
+        syncSettingsToUI();
+    }
+
+    function syncSettingsToUI() {
+        // Modal inputs
+        modalContextWords.value = appSettings.contextWords;
+        modalContextWordsBadge.textContent = `${appSettings.contextWords} words`;
+        modalAlgorithm.value = appSettings.algorithm;
+        modalMaxPages.value = appSettings.maxPages;
+        modalMaxPagesBadge.textContent = appSettings.maxPages;
+        modalMaxDepth.value = appSettings.maxDepth;
+        modalMaxDepthBadge.textContent = appSettings.maxDepth;
+        modalScreenshotToggle.checked = appSettings.captureScreenshots;
+        modalHeadlessToggle.checked = appSettings.headless;
+
+        // Summary Badges
+        summaryContextBadge.innerHTML = `<i class="bi bi-quote me-1"></i> Context: ${appSettings.contextWords} words`;
+        summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Smart Relevance" : "BFS (Shortest)"}`;
+        summaryLimitBadge.innerHTML = `<i class="bi bi-speedometer2 me-1"></i> Max ${appSettings.maxPages} Pages`;
+    }
+
+    modalContextWords.addEventListener("input", (e) => {
+        modalContextWordsBadge.textContent = `${e.target.value} words`;
+    });
+    modalMaxPages.addEventListener("input", (e) => {
+        modalMaxPagesBadge.textContent = e.target.value;
+    });
+    modalMaxDepth.addEventListener("input", (e) => {
+        modalMaxDepthBadge.textContent = e.target.value;
+    });
+
+    saveSettingsBtn.addEventListener("click", () => {
+        saveSettings();
+    });
+
+    resetSettingsBtn.addEventListener("click", () => {
+        appSettings = { ...DEFAULT_SETTINGS };
+        localStorage.removeItem("wikihop-settings");
+        syncSettingsToUI();
+    });
+
+    loadSavedSettings();
 
     // --- Theme Handling ---
     function initTheme() {
@@ -107,16 +210,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     initTheme();
-
-    // --- Slider Badges ---
-    maxPagesInput.addEventListener("input", (e) => {
-        maxPagesBadge.textContent = e.target.value;
-        maxPagesLimit = parseInt(e.target.value);
-    });
-
-    maxDepthInput.addEventListener("input", (e) => {
-        maxDepthBadge.textContent = e.target.value;
-    });
 
     // --- Swap Button ---
     swapBtn.addEventListener("click", () => {
@@ -161,7 +254,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }, 250);
         });
 
-        // Hide when clicking outside
         document.addEventListener("click", (e) => {
             if (!inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
                 dropdownEl.classList.add("d-none");
@@ -242,6 +334,18 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // --- Copy Context Button ---
+    copyContextBtn.addEventListener("click", () => {
+        if (!currentLinkContext) return;
+        const ctx = currentLinkContext;
+        const textToCopy = `Source Article: ${ctx.source_title} (${ctx.source_url})\nTarget Link: ${ctx.target_title}\n\n"... ${ctx.words_before} [${ctx.anchor_text}] ${ctx.words_after} ..."`;
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            const orig = copyContextBtn.innerHTML;
+            copyContextBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Copied!`;
+            setTimeout(() => (copyContextBtn.innerHTML = orig), 2000);
+        });
+    });
+
     // --- WebSocket Connection ---
     function connectWebSocket() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -282,18 +386,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!start || !target) return;
 
-        // Reset UI state
         resetUI();
 
         const payload = {
             action: "start",
             start: start,
             target: target,
-            algorithm: algorithmSelect.value,
-            max_pages: parseInt(maxPagesInput.value),
-            max_depth: parseInt(maxDepthInput.value),
-            capture_screenshots: screenshotToggle.checked,
-            headless: headlessToggle.checked,
+            algorithm: appSettings.algorithm,
+            max_pages: appSettings.maxPages,
+            max_depth: appSettings.maxDepth,
+            capture_screenshots: appSettings.captureScreenshots,
+            headless: appSettings.headless,
+            context_words: appSettings.contextWords,
         };
 
         if (socket && socket.readyState === WebSocket.OPEN) {
@@ -318,8 +422,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (eventType === "started") {
             setRunningState(true);
             startTimer();
-            maxPagesLimit = data.max_pages || 35;
-            kpiPagesSub.textContent = `Target: max ${maxPagesLimit}`;
+            const maxPages = data.max_pages || appSettings.maxPages;
+            kpiPagesSub.textContent = `Target: max ${maxPages}`;
             kpiStatusBadge.textContent = "Playwright navigating...";
             statsSection.classList.remove("d-none");
             liveInspectorCard.classList.remove("d-none");
@@ -332,18 +436,16 @@ document.addEventListener("DOMContentLoaded", () => {
             visitedPagesList.push(page);
             totalLinksAccumulated += page.links_count || 0;
 
-            // Update Progress Bar
-            const pct = Math.min(Math.round((totalVisited / maxPagesLimit) * 100), 98);
+            const maxPages = appSettings.maxPages;
+            const pct = Math.min(Math.round((totalVisited / maxPages) * 100), 98);
             progressBar.style.width = `${pct}%`;
 
-            // Update KPIs
             kpiPagesVisited.textContent = totalVisited;
             kpiCurrentDepth.textContent = page.depth;
             kpiDepthSub.textContent = `Hop level ${page.depth}`;
             kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
             kpiLinksSub.textContent = `+${page.links_count} from this page`;
 
-            // Update Live Inspector Card
             liveHopBadge.textContent = `Hop ${page.depth}`;
             livePageTitle.textContent = page.title;
             livePageLink.href = page.url;
@@ -359,10 +461,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 noScreenshotPlaceholder.classList.remove("d-none");
             }
 
-            // Update live trail
             renderLiveTrail(page.path_so_far);
-
-            // Add row to Visited Table
             appendVisitedTableRow(page);
             intermediateCountBadge.textContent = visitedPagesList.length;
 
@@ -375,6 +474,7 @@ document.addEventListener("DOMContentLoaded", () => {
             kpiStatusBadge.textContent = "Path Found!";
 
             currentFoundPath = data.path;
+            currentLinkContext = data.link_context;
             showResultCard(data);
 
         } else if (eventType === "not_found") {
@@ -403,7 +503,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- Show Result Card ---
+    // --- Show Result Card & Context ---
     function showResultCard(data) {
         resultCard.classList.remove("d-none");
         resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -443,7 +543,6 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
             hopChainWrapper.appendChild(node);
 
-            // Add arrow if not last
             if (index < data.path.length - 1) {
                 const arrow = document.createElement("div");
                 arrow.className = "hop-arrow";
@@ -451,6 +550,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 hopChainWrapper.appendChild(arrow);
             }
         });
+
+        // Render Context Section (150 words before and after)
+        const ctx = data.link_context;
+        if (ctx && (ctx.words_before || ctx.words_after || ctx.anchor_text)) {
+            contextCard.classList.remove("d-none");
+            contextBadgeWords.textContent = `${ctx.requested_words || 150} words before & after`;
+            contextSourceTitle.textContent = ctx.source_title;
+            contextTargetTitle.textContent = ctx.target_title;
+            contextSourceLink.href = ctx.source_url;
+            
+            contextBefore.textContent = ctx.words_before ? `... ${ctx.words_before}` : "(Start of page section)";
+            contextAnchor.textContent = ctx.anchor_text || ctx.target_title;
+            contextAfter.textContent = ctx.words_after ? `${ctx.words_after} ...` : "(End of page section)";
+            
+            wordsBeforeCount.textContent = ctx.before_count || 0;
+            wordsAfterCount.textContent = ctx.after_count || 0;
+        } else {
+            contextCard.classList.add("d-none");
+        }
     }
 
     // --- Render Live Path Trail ---
@@ -509,7 +627,6 @@ document.addEventListener("DOMContentLoaded", () => {
             </td>
         `;
 
-        // If thumbnail clicked, open modal
         if (page.screenshot) {
             const imgEl = tr.querySelector(".table-thumb");
             if (imgEl) {
@@ -554,6 +671,7 @@ document.addEventListener("DOMContentLoaded", () => {
         visitedPagesList = [];
         totalLinksAccumulated = 0;
         currentFoundPath = [];
+        currentLinkContext = null;
 
         progressBar.style.width = "0%";
         progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-primary";
@@ -565,6 +683,7 @@ document.addEventListener("DOMContentLoaded", () => {
         kpiStatusBadge.textContent = "Initializing...";
 
         resultCard.classList.add("d-none");
+        contextCard.classList.add("d-none");
         alertCard.classList.add("d-none");
         visitedTableBody.innerHTML = "";
         intermediateCountBadge.textContent = "0";

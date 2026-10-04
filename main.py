@@ -161,6 +161,7 @@ async def websocket_search(websocket: WebSocket):
         max_depth = int(params.get("max_depth", 5))
         capture_screenshots = bool(params.get("capture_screenshots", True))
         headless = bool(params.get("headless", True))
+        context_words = int(params.get("context_words", 150))
 
         current_crawler = WikipediaCrawler(
             start_input=start,
@@ -170,6 +171,7 @@ async def websocket_search(websocket: WebSocket):
             max_depth=max_depth,
             headless=headless,
             capture_screenshots=capture_screenshots,
+            context_words=context_words,
         )
 
         try:
