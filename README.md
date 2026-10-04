@@ -7,6 +7,11 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
 ## ✨ Features
 
 - **Connecting Link Context (150 Words Before & After)**: Extracts and presents the surrounding ~150 words before and ~150 words after the connecting link in the source article with full link highlighting, word counts, and one-click copy.
+- **Intermediate Links Used & Algorithmic Rationale**: Comprehensive step-by-step breakdown of every link traversed in the final connecting path and *why* it was chosen by the algorithm:
+  - Quantitative score breakdown (e.g. `+5,000 pts Direct Feeder`, `+120 pts Keyword Overlap`, `+45 pts Global Connector Hub`, `+10,000 pts Target Discovered`)
+  - Categorical decision badges (`⭐ Direct Feeder`, `🌐 Global Connector Hub`, `🎯 Target Discovered`, `BFS Level`)
+  - Natural-language explanations detailing the decision-making behind each branch expansion
+  - Factor tags indicating category overlaps, token intersections, and structural graph centrality
 - **Dedicated Settings Panel**: Customize the surrounding context length (slider from 25 to 350+ words), switch search algorithms, configure max page and hop depth limits, and toggle live screenshots.
 - **Automated Playwright Traversal**: Uses Microsoft Playwright (Chromium/Edge) to load actual Wikipedia pages, execute in-page DOM parsing, extract all internal links, and detect connections.
 - **Degrees of Separation (Hop Counter)**: Counts intermediate hops taken to find the target page.

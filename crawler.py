@@ -2,19 +2,27 @@
 Wikipedia Link Hop Crawler using Playwright.
 Navigates Wikipedia pages to find the shortest or heuristic link path
 between two articles, reports intermediate visited pages in real-time,
-and extracts 150 words of context before and after the connecting links.
-
-Features Bidirectional Backlinks-Guided Search (Meet-in-the-Middle),
-Target Category Semantic Weighting, and High-Centrality Hub Prioritization.
+extracts 150 words of context before and after the connecting links,
+and records the algorithmic rationale behind each intermediate link selected.
 """
 
 import asyncio
 import base64
 import html
+import io
 import logging
 import re
+import sys
 import urllib.parse
 from typing import AsyncGenerator, Dict, List, Optional, Set, Tuple
+
+# Ensure UTF-8 stdout/stderr encoding on Windows
+if sys.platform.startswith("win"):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import requests
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
@@ -191,67 +199,128 @@ def compute_relevance_score(
     target_keywords: Set[str],
     target_backlinks: Set[str],
     depth: int = 0,
-) -> Tuple[float, bool]:
+    algorithm: str = "heuristic",
+) -> Tuple[float, bool, List[str], str, str, str]:
     """
     Advanced heuristic score for a candidate link:
-    - Target Backlinks Hit (guaranteed 1 hop to target): +5000 points!
-    - Exact/Substring match: +1000 / +150 points
-    - Token overlap: +120 points per token
-    - Category & context overlap: +15 points per keyword
-    - High-Centrality global connector hubs: +45 points
-    - Narrow dead-end penalties (local roads, specific schools): -30 to -50 points
-    - Slight depth penalty to prefer shorter branches
-    Returns: (score, is_backlink_hit)
+    Returns: (score, is_backlink_hit, reasons, primary_badge, badge_class, explanation)
     """
     link_lower = link_title.lower()
     slug_lower = link_slug.lower()
     target_lower = target_title.lower()
     target_s_lower = target_slug.lower()
 
+    reasons: List[str] = []
+
+    # If algorithm is BFS, score is purely depth-based
+    if algorithm == "bfs":
+        score = -float(depth)
+        reasons = [
+            f"Queued in level-by-level breadth-first search at hop depth {depth}",
+            "Standard FIFO queue order"
+        ]
+        badge = f"BFS Level {depth}"
+        badge_class = "bg-secondary text-white"
+        explanation = f"Systematically enqueued in breadth-first FIFO traversal order at hop depth {depth}."
+        return score, False, reasons, badge, badge_class, explanation
+
     # 1. Direct Target Match
     if target_lower == link_lower or target_s_lower == slug_lower:
-        return 10000.0, False
+        reasons.append("Exact target match")
+        return (
+            10000.0,
+            False,
+            reasons,
+            "🎯 Target Match",
+            "bg-success text-white",
+            f"Matches target article '{target_title}' directly."
+        )
 
     # 2. Backlink Hit: Candidate links DIRECTLY to target!
     is_backlink_hit = (slug_lower in target_backlinks or link_lower in target_backlinks)
     if is_backlink_hit:
-        return 5000.0 - (depth * 10.0), True
+        score = 5000.0 - (depth * 10.0)
+        reasons.append("Direct Feeder Backlink: Guarantees 1-hop path to target (+5,000 pts)")
+        reasons.append("Identified in target incoming backlinks graph")
+        return (
+            score,
+            True,
+            reasons,
+            "⭐ Direct Feeder (+5,000)",
+            "bg-warning text-dark",
+            f"Selected with highest priority: '{link_title}' was identified in the pre-mapped incoming backlinks graph as an immediate 1-hop feeder to '{target_title}'."
+        )
 
     score = 0.0
+    primary_badge = "Candidate Neighbor"
+    badge_class = "bg-secondary text-white"
 
     # 3. Substring match
     if target_lower in link_lower or target_s_lower in slug_lower:
         score += 150.0
+        reasons.append(f"Target title substring match (+150 pts)")
+        primary_badge = "Title Match"
+        badge_class = "bg-primary text-white"
     elif link_lower in target_lower or slug_lower in target_s_lower:
         score += 90.0
+        reasons.append(f"Title partial match (+90 pts)")
+        primary_badge = "Partial Title Match"
+        badge_class = "bg-primary text-white"
 
     # 4. Token overlap with target title and slug
     target_tokens = set(re.findall(r"\w+", target_lower + " " + target_s_lower.replace("_", " ")))
     link_tokens = set(re.findall(r"\w+", link_lower + " " + slug_lower.replace("_", " ")))
     overlap = target_tokens.intersection(link_tokens)
-    score += len(overlap) * 120.0
+    if overlap:
+        score += len(overlap) * 120.0
+        reasons.append(f"Token overlap with target: {', '.join(overlap)} (+{len(overlap)*120} pts)")
+        if not primary_badge or primary_badge == "Candidate Neighbor":
+            primary_badge = f"Keywords ({', '.join(list(overlap)[:2])})"
+            badge_class = "bg-primary text-white"
 
     # 5. Overlap with target categories & summary keywords
     keyword_overlap = target_keywords.intersection(link_tokens)
-    score += len(keyword_overlap) * 16.0
+    if keyword_overlap:
+        score += len(keyword_overlap) * 16.0
+        reasons.append(f"Semantic category/context overlap: {', '.join(list(keyword_overlap)[:3])} (+{len(keyword_overlap)*16} pts)")
+        if primary_badge == "Candidate Neighbor":
+            primary_badge = f"Semantic Match"
+            badge_class = "bg-secondary text-white"
 
     # 6. High-Centrality Hubs
-    if slug_lower in HIGH_CENTRALITY_HUBS or any(slug_lower == h for h in HIGH_CENTRALITY_HUBS):
+    is_hub = (slug_lower in HIGH_CENTRALITY_HUBS or any(slug_lower == h for h in HIGH_CENTRALITY_HUBS))
+    if is_hub:
         score += 45.0
+        reasons.append("High-centrality global connector hub spanning multiple domains (+45 pts)")
+        if primary_badge == "Candidate Neighbor":
+            primary_badge = "🌐 Global Connector Hub"
+            badge_class = "bg-info text-dark"
 
     # 7. Penalize dead-end narrow topics (highways, elementary schools, etc.)
     for pattern in DEAD_END_PATTERNS:
         if pattern in link_lower or pattern in slug_lower:
             score -= 40.0
+            reasons.append(f"Penalized narrow local pattern '{pattern}' (-40 pts)")
             break
 
     if any(slug_lower.startswith(p) for p in ["list_of", "timeline_of"]):
         score -= 25.0
+        reasons.append("Penalized list/timeline index page (-25 pts)")
 
     # 8. Slight depth penalty so shallower discoveries are preferred
     score -= depth * 5.0
 
-    return score, False
+    # Build human explanation
+    if is_hub and not overlap:
+        explanation = f"Prioritized as a high-centrality global connector hub ('{link_title}') bridging regional topics into international culture, governance, and foundational disciplines."
+    elif overlap:
+        explanation = f"Selected due to strong keyword alignment with target '{target_title}': overlapping with {', '.join(overlap)}."
+    elif keyword_overlap:
+        explanation = f"Selected for semantic alignment with target categories and contextual topics ({', '.join(list(keyword_overlap)[:3])})."
+    else:
+        explanation = f"Selected as the top-ranking candidate link on this branch based on structural network centrality."
+
+    return score, False, reasons, primary_badge, badge_class, explanation
 
 
 async def launch_playwright_browser(playwright_instance, headless: bool = True) -> Browser:
@@ -318,7 +387,6 @@ class WikipediaCrawler:
         target_keywords: Set[str] = set()
 
         if self.algorithm == "heuristic":
-            # Run backlinks and categories in background threads
             loop = asyncio.get_running_loop()
             backlinks_future = loop.run_in_executor(None, fetch_target_backlinks, target_info["slug"], 1000)
             categories_future = loop.run_in_executor(None, fetch_target_categories, target_info["slug"])
@@ -355,6 +423,7 @@ class WikipediaCrawler:
                 "total_visited": 1,
                 "intermediate_pages": [],
                 "link_context": None,
+                "intermediate_steps": [],
                 "message": "Start and target pages are identical! 0 hops required.",
             }
             return
@@ -363,9 +432,9 @@ class WikipediaCrawler:
         visited_slugs: Set[str] = set()
         intermediate_pages: List[Dict] = []
         
-        # Queue item: (score, depth, current_slug, current_title, path_titles, path_slugs, is_backlink_hit)
-        queue: List[Tuple[float, int, str, str, List[str], List[str], bool]] = [
-            (0.0, 0, start_info["slug"], start_info["title"], [start_info["title"]], [start_info["slug"]], False)
+        # Queue item: (score, depth, current_slug, current_title, path_titles, path_slugs, is_backlink_hit, path_steps)
+        queue: List[Tuple[float, int, str, str, List[str], List[str], bool, List[Dict]]] = [
+            (0.0, 0, start_info["slug"], start_info["title"], [start_info["title"]], [start_info["slug"]], False, [])
         ]
 
         target_slug_lower = target_info["slug"].lower()
@@ -385,9 +454,9 @@ class WikipediaCrawler:
                 while queue and visited_count < self.max_pages and not self.cancel_requested:
                     if self.algorithm == "heuristic":
                         queue.sort(key=lambda item: (-item[0], item[1]))
-                        score, depth, current_slug, current_title, path_titles, path_slugs, was_backlink_hit = queue.pop(0)
+                        score, depth, current_slug, current_title, path_titles, path_slugs, was_backlink_hit, path_steps = queue.pop(0)
                     else:
-                        score, depth, current_slug, current_title, path_titles, path_slugs, was_backlink_hit = queue.pop(0)
+                        score, depth, current_slug, current_title, path_titles, path_slugs, was_backlink_hit, path_steps = queue.pop(0)
 
                     slug_key = current_slug.lower()
                     if slug_key in visited_slugs:
@@ -525,6 +594,27 @@ class WikipediaCrawler:
                         final_urls = [f"https://en.wikipedia.org/wiki/{s}" for s in final_path_slugs]
                         hops = len(final_path_titles) - 1
 
+                        # Build final step explanation
+                        final_step = {
+                            "from_title": clean_title,
+                            "from_slug": current_slug,
+                            "from_url": page_url,
+                            "to_title": matched_title,
+                            "to_slug": target_match["slug"],
+                            "to_url": f"https://en.wikipedia.org/wiki/{target_match['slug']}",
+                            "hop": hops,
+                            "score": 10000.0,
+                            "is_feeder": False,
+                            "badge": "🎯 Target Discovered",
+                            "badge_class": "bg-success text-white",
+                            "reasons": [
+                                f"Direct live hyperlink to '{matched_title}' discovered in the article text of '{clean_title}'",
+                                "Target destination successfully reached",
+                            ],
+                            "explanation": f"Goal reached! Playwright navigated to '{clean_title}' and found an active internal hyperlink pointing directly to '{matched_title}'.",
+                        }
+                        final_intermediate_steps = path_steps + [final_step]
+
                         # EXTRACT CONTEXT (150 words before and 150 words after the target link)
                         extracted_context = None
                         try:
@@ -624,6 +714,7 @@ class WikipediaCrawler:
                             "urls": final_urls,
                             "total_visited": visited_count,
                             "intermediate_pages": intermediate_pages,
+                            "intermediate_steps": final_intermediate_steps,
                             "found_on_page": clean_title,
                             "link_context": link_context,
                             "message": f"Target reached in {hops} hop{'s' if hops != 1 else ''}! Found link '{matched_title}' after inspecting {visited_count} intermediate pages.",
@@ -638,7 +729,7 @@ class WikipediaCrawler:
                             if c_slug.lower() in visited_slugs:
                                 continue
                             c_title = link["title"]
-                            link_score, is_feeder = compute_relevance_score(
+                            link_score, is_feeder, reasons, badge, badge_class, explanation = compute_relevance_score(
                                 c_title,
                                 c_slug,
                                 target_info["title"],
@@ -646,15 +737,31 @@ class WikipediaCrawler:
                                 target_keywords,
                                 target_backlinks,
                                 depth=depth + 1,
+                                algorithm=self.algorithm,
                             )
-                            scored_candidates.append((link_score, c_slug, c_title, is_feeder))
+                            step_data = {
+                                "from_title": clean_title,
+                                "from_slug": current_slug,
+                                "from_url": page_url,
+                                "to_title": c_title,
+                                "to_slug": c_slug,
+                                "to_url": f"https://en.wikipedia.org/wiki/{c_slug}",
+                                "hop": depth + 1,
+                                "score": round(link_score, 1),
+                                "is_feeder": is_feeder,
+                                "badge": badge,
+                                "badge_class": badge_class,
+                                "reasons": reasons,
+                                "explanation": explanation,
+                            }
+                            scored_candidates.append((link_score, c_slug, c_title, is_feeder, step_data))
 
                         # Sort children by relevance
                         scored_candidates.sort(key=lambda x: x[0], reverse=True)
 
                         # Enqueue top candidates
                         branch_limit = 25 if self.algorithm == "heuristic" else 15
-                        for l_score, c_slug, c_title, is_feeder in scored_candidates[:branch_limit]:
+                        for l_score, c_slug, c_title, is_feeder, step_data in scored_candidates[:branch_limit]:
                             queue.append((
                                 l_score,
                                 depth + 1,
@@ -663,6 +770,7 @@ class WikipediaCrawler:
                                 path_titles + [c_title],
                                 path_slugs + [c_slug],
                                 is_feeder,
+                                path_steps + [step_data],
                             ))
 
                     await asyncio.sleep(0.02)

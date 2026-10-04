@@ -77,6 +77,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const resultSummaryText = document.getElementById("resultSummaryText");
     const copyPathBtn = document.getElementById("copyPathBtn");
 
+    // Intermediate Steps Rationale Card
+    const intermediateStepsCard = document.getElementById("intermediateStepsCard");
+    const intermediateStepsList = document.getElementById("intermediateStepsList");
+    const stepsTotalBadge = document.getElementById("stepsTotalBadge");
+
     // Connecting Link Context Card
     const contextCard = document.getElementById("contextCard");
     const contextBadgeWords = document.getElementById("contextBadgeWords");
@@ -584,6 +589,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
 
+        // Render Intermediate Links Used & Algorithmic Rationale
+        renderIntermediateSteps(data.intermediate_steps);
+
         // Render Context Section (150 words before and after)
         const ctx = data.link_context;
         if (ctx && (ctx.words_before || ctx.words_after || ctx.anchor_text)) {
@@ -602,6 +610,92 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             contextCard.classList.add("d-none");
         }
+    }
+
+    // --- Render Intermediate Links Used & Algorithmic Rationale ---
+    function renderIntermediateSteps(steps) {
+        if (!intermediateStepsList || !intermediateStepsCard) return;
+        intermediateStepsList.innerHTML = "";
+
+        if (!steps || steps.length === 0) {
+            intermediateStepsCard.classList.add("d-none");
+            return;
+        }
+
+        intermediateStepsCard.classList.remove("d-none");
+        stepsTotalBadge.textContent = `${steps.length} Hop Link${steps.length === 1 ? "" : "s"} Traversed`;
+
+        steps.forEach((step, idx) => {
+            const card = document.createElement("div");
+            let borderClass = "";
+            if (step.badge && step.badge.includes("Target")) {
+                borderClass = "step-target";
+            } else if (step.is_feeder) {
+                borderClass = "step-feeder";
+            } else if (step.badge && step.badge.includes("Hub")) {
+                borderClass = "step-hub";
+            }
+
+            card.className = `card border rounded-3 p-3 shadow-sm step-card ${borderClass}`;
+
+            const formattedScore = typeof step.score === "number" 
+                ? `${step.score > 0 ? "+" : ""}${step.score.toLocaleString()}` 
+                : step.score;
+
+            let reasonsHtml = "";
+            if (step.reasons && step.reasons.length > 0) {
+                const pills = step.reasons.map(r => `
+                    <span class="badge bg-body-secondary text-secondary-emphasis border fw-normal py-1 px-2">
+                        <i class="bi bi-check2-circle text-success me-1"></i>${escapeHtml(r)}
+                    </span>
+                `).join("");
+                reasonsHtml = `
+                    <div class="mt-2 pt-2 border-top">
+                        <div class="text-secondary small fw-semibold mb-1">
+                            <i class="bi bi-sliders2 text-primary me-1"></i>Algorithmic Factors:
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            ${pills}
+                        </div>
+                    </div>
+                `;
+            }
+
+            card.innerHTML = `
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 pb-2 mb-2 border-bottom">
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <span class="badge bg-primary px-2.5 py-1 rounded-pill fw-bold">
+                            Hop ${step.hop || (idx + 1)}
+                        </span>
+                        <div class="d-flex align-items-center flex-wrap gap-1 fs-6">
+                            <a href="${step.from_url || '#'}" target="_blank" class="text-body-emphasis text-decoration-none fw-semibold">
+                                ${escapeHtml(step.from_title)}
+                            </a>
+                            <i class="bi bi-arrow-right text-primary mx-1"></i>
+                            <a href="${step.to_url || '#'}" target="_blank" class="text-primary text-decoration-none fw-bold">
+                                ${escapeHtml(step.to_title)}
+                            </a>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>
+                        <span class="badge bg-body-secondary text-secondary border font-monospace">Score: ${formattedScore}</span>
+                    </div>
+                </div>
+
+                <div class="p-2.5 rounded-2 step-explanation-box">
+                    <div class="small text-body-secondary">
+                        <i class="bi bi-cpu-fill text-primary me-1"></i>
+                        <strong class="text-body-emphasis">Why this link was chosen:</strong>
+                        ${escapeHtml(step.explanation || "Selected based on graph traversal priority.")}
+                    </div>
+                </div>
+
+                ${reasonsHtml}
+            `;
+
+            intermediateStepsList.appendChild(card);
+        });
     }
 
     // --- Render Live Path Trail ---
@@ -719,6 +813,8 @@ document.addEventListener("DOMContentLoaded", () => {
         kpiStatusBadge.textContent = "Initializing...";
 
         resultCard.classList.add("d-none");
+        if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
+        if (intermediateStepsList) intermediateStepsList.innerHTML = "";
         contextCard.classList.add("d-none");
         alertCard.classList.add("d-none");
         visitedTableBody.innerHTML = "";
