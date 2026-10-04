@@ -642,6 +642,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 ? `${step.score > 0 ? "+" : ""}${step.score.toLocaleString()}` 
                 : step.score;
 
+            // Context snippet: 15 words before and 15 words after
+            let contextSnippetHtml = "";
+            const hasBefore = Boolean(step.words_before && step.words_before.trim());
+            const hasAfter = Boolean(step.words_after && step.words_after.trim());
+            const anchorText = step.anchor_text || step.to_title;
+
+            if (hasBefore || hasAfter || anchorText) {
+                const beforePart = hasBefore ? `... ${escapeHtml(step.words_before)}` : "(Section start)";
+                const afterPart = hasAfter ? `${escapeHtml(step.words_after)} ...` : "(Section end)";
+                contextSnippetHtml = `
+                    <div class="step-context-box p-2.5 rounded-2 bg-body-tertiary border small mb-2">
+                        <div class="d-flex align-items-center justify-content-between text-muted mb-1" style="font-size: 0.76rem;">
+                            <span>
+                                <i class="bi bi-quote text-success me-1"></i>
+                                In-page context on <strong>${escapeHtml(step.from_title)}</strong>:
+                            </span>
+                            <span class="badge bg-secondary-subtle text-secondary border font-monospace" style="font-size: 0.7rem;">
+                                15 words before &amp; after
+                            </span>
+                        </div>
+                        <div class="step-context-text text-body">
+                            <span class="text-secondary">${beforePart}</span>
+                            <mark class="step-anchor-highlight px-2 py-0.5 mx-1 rounded">${escapeHtml(anchorText)}</mark>
+                            <span class="text-secondary">${afterPart}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
             let reasonsHtml = "";
             if (step.reasons && step.reasons.length > 0) {
                 const pills = step.reasons.map(r => `
@@ -683,13 +712,15 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 </div>
 
-                <div class="p-2.5 rounded-2 step-explanation-box">
+                <div class="p-2.5 rounded-2 step-explanation-box mb-2">
                     <div class="small text-body-secondary">
                         <i class="bi bi-cpu-fill text-primary me-1"></i>
                         <strong class="text-body-emphasis">Why this link was chosen:</strong>
                         ${escapeHtml(step.explanation || "Selected based on graph traversal priority.")}
                     </div>
                 </div>
+
+                ${contextSnippetHtml}
 
                 ${reasonsHtml}
             `;

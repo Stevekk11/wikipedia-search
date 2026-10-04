@@ -8,6 +8,7 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
 
 - **Connecting Link Context (150 Words Before & After)**: Extracts and presents the surrounding ~150 words before and ~150 words after the connecting link in the source article with full link highlighting, word counts, and one-click copy.
 - **Intermediate Links Used & Algorithmic Rationale**: Comprehensive step-by-step breakdown of every link traversed in the final connecting path and *why* it was chosen by the algorithm:
+  - **15-Word Surrounding Context**: Shows ~15 words before and ~15 words after each intermediate link on its source page with highlighted anchor text.
   - Quantitative score breakdown (e.g. `+5,000 pts Direct Feeder`, `+120 pts Keyword Overlap`, `+45 pts Global Connector Hub`, `+10,000 pts Target Discovered`)
   - Categorical decision badges (`⭐ Direct Feeder`, `🌐 Global Connector Hub`, `🎯 Target Discovered`, `BFS Level`)
   - Natural-language explanations detailing the decision-making behind each branch expansion

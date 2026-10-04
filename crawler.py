@@ -501,7 +501,7 @@ class WikipediaCrawler:
                         except Exception as shot_err:
                             logger.debug(f"Screenshot error: {shot_err}")
 
-                    # Extract valid internal links inside main article body
+                    # Extract valid internal links inside main article body along with 15-word surrounding context
                     extracted_links: List[Dict[str, str]] = []
                     try:
                         extracted_links = await page.evaluate("""() => {
@@ -517,7 +517,7 @@ class WikipediaCrawler:
                             ];
 
                             for (const a of anchors) {
-                                if (a.closest('#mw-navigation, #mw-panel, #p-lang, #footer, .vertical-navbox, .sistersitebox')) {
+                                if (a.closest('style, script, .mw-editsection, #mw-navigation, #mw-panel, #p-lang, #footer, .vertical-navbox, .sistersitebox')) {
                                     continue;
                                 }
                                 const rawHref = a.getAttribute('href') || '';
@@ -543,7 +543,41 @@ class WikipediaCrawler:
                                 if (!seen.has(key)) {
                                     seen.add(key);
                                     const title = a.getAttribute('title') || a.innerText.trim() || slug.replace(/_/g, ' ');
-                                    results.push({ slug, title });
+                                    const anchorText = a.innerText.trim() || title;
+
+                                    // Extract 15 words before and 15 words after using clean DOM range
+                                    let wordsBefore = '';
+                                    let wordsAfter = '';
+                                    const block = a.closest('p, li, dd, dt, td, th') || a.parentElement;
+                                    if (block) {
+                                        try {
+                                            const rangeBefore = document.createRange();
+                                            rangeBefore.setStart(block, 0);
+                                            rangeBefore.setEndBefore(a);
+                                            const cloneB = rangeBefore.cloneContents();
+                                            cloneB.querySelectorAll('style, script, .mw-editsection').forEach(e => e.remove());
+                                            const beforeStr = cloneB.textContent.trim();
+                                            const bTokens = beforeStr.split(/\\s+/).filter(Boolean);
+                                            wordsBefore = bTokens.slice(-15).join(' ');
+
+                                            const rangeAfter = document.createRange();
+                                            rangeAfter.setStartAfter(a);
+                                            rangeAfter.setEnd(block, block.childNodes.length);
+                                            const cloneA = rangeAfter.cloneContents();
+                                            cloneA.querySelectorAll('style, script, .mw-editsection').forEach(e => e.remove());
+                                            const afterStr = cloneA.textContent.trim();
+                                            const aTokens = afterStr.split(/\\s+/).filter(Boolean);
+                                            wordsAfter = aTokens.slice(0, 15).join(' ');
+                                        } catch(e) {}
+                                    }
+
+                                    results.push({
+                                        slug: slug,
+                                        title: title,
+                                        anchor_text: anchorText,
+                                        words_before: wordsBefore,
+                                        words_after: wordsAfter
+                                    });
                                 }
                             }
                             return results;
@@ -602,6 +636,9 @@ class WikipediaCrawler:
                             "to_title": matched_title,
                             "to_slug": target_match["slug"],
                             "to_url": f"https://en.wikipedia.org/wiki/{target_match['slug']}",
+                            "anchor_text": target_match.get("anchor_text", matched_title),
+                            "words_before": target_match.get("words_before", ""),
+                            "words_after": target_match.get("words_after", ""),
                             "hop": hops,
                             "score": 10000.0,
                             "is_feeder": False,
@@ -706,6 +743,17 @@ class WikipediaCrawler:
                             "requested_words": self.context_words,
                         }
 
+                        # If final_step didn't have before/after, fallback to 150-word extracted context slice
+                        if extracted_context:
+                            if not final_step.get("words_before") and extracted_context.get("wordsBefore"):
+                                b_toks = extracted_context["wordsBefore"].split()
+                                final_step["words_before"] = " ".join(b_toks[-15:])
+                            if not final_step.get("words_after") and extracted_context.get("wordsAfter"):
+                                a_toks = extracted_context["wordsAfter"].split()
+                                final_step["words_after"] = " ".join(a_toks[:15])
+                            if extracted_context.get("anchorText"):
+                                final_step["anchor_text"] = extracted_context["anchorText"]
+
                         yield {
                             "event": "found",
                             "hops": hops,
@@ -746,6 +794,9 @@ class WikipediaCrawler:
                                 "to_title": c_title,
                                 "to_slug": c_slug,
                                 "to_url": f"https://en.wikipedia.org/wiki/{c_slug}",
+                                "anchor_text": link.get("anchor_text", c_title),
+                                "words_before": link.get("words_before", ""),
+                                "words_after": link.get("words_after", ""),
                                 "hop": depth + 1,
                                 "score": round(link_score, 1),
                                 "is_feeder": is_feeder,
