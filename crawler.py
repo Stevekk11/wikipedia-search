@@ -308,7 +308,13 @@ def compute_relevance_score(
         reasons.append("Penalized list/timeline index page (-25 pts)")
 
     # 8. Slight depth penalty so shallower discoveries are preferred
-    score -= depth * 5.0
+    if depth > 0:
+        penalty = depth * 5.0
+        score -= penalty
+        reasons.append(f"Depth penalty at hop {depth} (-{penalty:.0f} pts)")
+
+    if not reasons:
+        reasons.append("Base relevance baseline (0 pts)")
 
     # Build human explanation
     if is_hub and not overlap:

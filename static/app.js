@@ -675,6 +675,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
             card.className = `card border rounded-3 p-3 shadow-sm step-card ${borderClass}`;
 
+            const scoreVal = typeof step.score === "number" ? step.score : parseFloat(step.score);
+            let scoreBadgeClass = "bg-body-secondary text-secondary border";
+            if (!isNaN(scoreVal)) {
+                if (scoreVal > 0) scoreBadgeClass = "bg-success-subtle text-success-emphasis border border-success-subtle";
+                else if (scoreVal < 0) scoreBadgeClass = "bg-danger-subtle text-danger-emphasis border border-danger-subtle";
+            }
+
             const formattedScore = typeof step.score === "number" 
                 ? `${step.score > 0 ? "+" : ""}${step.score.toLocaleString()}` 
                 : step.score;
@@ -710,15 +717,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
             let reasonsHtml = "";
             if (step.reasons && step.reasons.length > 0) {
-                const pills = step.reasons.map(r => `
-                    <span class="badge bg-body-secondary text-secondary-emphasis border fw-normal py-1 px-2">
-                        <i class="bi bi-check2-circle text-success me-1"></i>${escapeHtml(r)}
-                    </span>
-                `).join("");
+                const pills = step.reasons.map(r => {
+                    const isPenalty = r.includes("(-") || r.includes("Penalized") || r.includes("penalty");
+                    const isBonus = r.includes("(+") || r.includes("Match") || r.includes("overlap");
+                    const icon = isPenalty 
+                        ? `<i class="bi bi-dash-circle text-danger me-1"></i>`
+                        : isBonus
+                        ? `<i class="bi bi-plus-circle text-success me-1"></i>`
+                        : `<i class="bi bi-info-circle text-info me-1"></i>`;
+                    const badgeClass = isPenalty
+                        ? "bg-danger-subtle text-danger-emphasis border-danger-subtle"
+                        : isBonus
+                        ? "bg-success-subtle text-success-emphasis border-success-subtle"
+                        : "bg-body-secondary text-secondary-emphasis border";
+                    return `
+                        <span class="badge ${badgeClass} border fw-normal py-1 px-2">
+                            ${icon}${escapeHtml(r)}
+                        </span>
+                    `;
+                }).join("");
                 reasonsHtml = `
                     <div class="mt-2 pt-2 border-top">
                         <div class="text-secondary small fw-semibold mb-1">
-                            <i class="bi bi-sliders2 text-primary me-1"></i>Algorithmic Factors:
+                            <i class="bi bi-sliders2 text-primary me-1"></i>Score Breakdown &amp; Factors:
                         </div>
                         <div class="d-flex flex-wrap gap-1">
                             ${pills}
@@ -745,7 +766,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>
-                        <span class="badge bg-body-secondary text-secondary border font-monospace">Score: ${formattedScore}</span>
+                        <span class="badge ${scoreBadgeClass} font-monospace">Score: ${formattedScore}</span>
                     </div>
                 </div>
 
