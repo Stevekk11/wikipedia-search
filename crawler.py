@@ -414,7 +414,7 @@ async def get_page_backlinks(page: Page, slug: str, limit: int = 150) -> List[Di
 
 
 async def extract_target_link_context(page: Page, source_slug: str, target_slug: str, target_title: str, words_count: int = 150) -> Dict:
-    """Extract up to words_count before and after the target link on source_slug."""
+    """Extract up to words_count before and after the target link on source_slug, along with section header."""
     try:
         cur_url = page.url or ""
         if f"/wiki/{source_slug}" not in cur_url:
@@ -443,6 +443,28 @@ async def extract_target_link_context(page: Page, source_slug: str, target_slug:
                 }
 
                 if (!targetAnchor) return null;
+
+                // Find section subtitle
+                let sectionTitle = 'Lead / Introduction';
+                let cur = targetAnchor;
+                while (cur && cur !== body && cur !== document.documentElement) {
+                    let prev = cur.previousElementSibling;
+                    while (prev) {
+                        const h = prev.matches('h2, h3, h4, h5, h6') ? prev : prev.querySelector('h2, h3, h4, h5, h6, .mw-headline');
+                        if (h) {
+                            const cloneH = h.cloneNode(true);
+                            cloneH.querySelectorAll('.mw-editsection, style, script').forEach(e => e.remove());
+                            const hText = cloneH.textContent.trim().replace(/\\[edit\\]/gi, '').trim();
+                            if (hText) {
+                                sectionTitle = hText;
+                                break;
+                            }
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                    if (sectionTitle !== 'Lead / Introduction') break;
+                    cur = cur.parentElement;
+                }
 
                 const walkerBefore = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
                 walkerBefore.currentNode = targetAnchor;
@@ -477,6 +499,7 @@ async def extract_target_link_context(page: Page, source_slug: str, target_slug:
 
                 return {
                     anchorText: targetAnchor.innerText.trim() || targetAnchor.getAttribute('title') || '',
+                    section: sectionTitle,
                     wordsBefore: wordsBefore.join(' '),
                     wordsAfter: wordsAfter.join(' '),
                     beforeCount: wordsBefore.length,
@@ -496,6 +519,7 @@ async def extract_target_link_context(page: Page, source_slug: str, target_slug:
                 "target_title": target_title,
                 "target_slug": target_slug,
                 "target_url": f"https://en.wikipedia.org/wiki/{target_slug}",
+                "section": extracted_context.get("section", "Lead / Introduction"),
                 "words_before": extracted_context.get("wordsBefore", ""),
                 "anchor_text": extracted_context.get("anchorText", target_title),
                 "words_after": extracted_context.get("wordsAfter", ""),
@@ -511,6 +535,7 @@ async def extract_target_link_context(page: Page, source_slug: str, target_slug:
         "target_title": target_title,
         "target_slug": target_slug,
         "target_url": f"https://en.wikipedia.org/wiki/{target_slug}",
+        "section": "Lead / Introduction",
         "words_before": "",
         "anchor_text": target_title,
         "words_after": "",
@@ -786,6 +811,29 @@ class WikipediaCrawler:
 
                                         let wordsBefore = '';
                                         let wordsAfter = '';
+                                        let sectionTitle = 'Lead / Introduction';
+                                        
+                                        // Find section subtitle
+                                        let cur = a;
+                                        while (cur && cur !== body && cur !== document.documentElement) {
+                                            let prev = cur.previousElementSibling;
+                                            while (prev) {
+                                                const h = prev.matches('h2, h3, h4, h5, h6') ? prev : prev.querySelector('h2, h3, h4, h5, h6, .mw-headline');
+                                                if (h) {
+                                                    const cloneH = h.cloneNode(true);
+                                                    cloneH.querySelectorAll('.mw-editsection, style, script').forEach(e => e.remove());
+                                                    const hText = cloneH.textContent.trim().replace(/\\[edit\\]/gi, '').trim();
+                                                    if (hText) {
+                                                        sectionTitle = hText;
+                                                        break;
+                                                    }
+                                                }
+                                                prev = prev.previousElementSibling;
+                                            }
+                                            if (sectionTitle !== 'Lead / Introduction') break;
+                                            cur = cur.parentElement;
+                                        }
+
                                         const block = a.closest('p, li, dd, dt, td, th') || a.parentElement;
                                         if (block) {
                                             try {
@@ -813,6 +861,7 @@ class WikipediaCrawler:
                                             slug: slug,
                                             title: title,
                                             anchor_text: anchorText,
+                                            section: sectionTitle,
                                             words_before: wordsBefore,
                                             words_after: wordsAfter
                                         });
@@ -895,6 +944,7 @@ class WikipediaCrawler:
                                 "to_title": matched_title,
                                 "to_slug": target_match["slug"],
                                 "to_url": f"https://en.wikipedia.org/wiki/{target_match['slug']}",
+                                "section": target_match.get("section", "Lead / Introduction"),
                                 "anchor_text": target_match.get("anchor_text", matched_title),
                                 "words_before": target_match.get("words_before", ""),
                                 "words_after": target_match.get("words_after", ""),
@@ -946,6 +996,7 @@ class WikipediaCrawler:
                                 "to_title": meeting_title,
                                 "to_slug": meeting_link["slug"],
                                 "to_url": f"https://en.wikipedia.org/wiki/{meeting_link['slug']}",
+                                "section": meeting_link.get("section", "Lead / Introduction"),
                                 "anchor_text": meeting_link.get("anchor_text", meeting_title),
                                 "words_before": meeting_link.get("words_before", ""),
                                 "words_after": meeting_link.get("words_after", ""),
@@ -1022,6 +1073,7 @@ class WikipediaCrawler:
                                     "to_title": c_title,
                                     "to_slug": c_slug,
                                     "to_url": f"https://en.wikipedia.org/wiki/{c_slug}",
+                                    "section": link.get("section", "Lead / Introduction"),
                                     "anchor_text": link.get("anchor_text", c_title),
                                     "words_before": link.get("words_before", ""),
                                     "words_after": link.get("words_after", ""),
@@ -1276,6 +1328,7 @@ class WikipediaCrawler:
                                 "to_title": clean_title,
                                 "to_slug": current_slug,
                                 "to_url": page_url,
+                                "section": start_hit.get("section", "Lead / Introduction"),
                                 "anchor_text": start_hit.get("title", clean_title),
                                 "words_before": "",
                                 "words_after": "",
@@ -1335,6 +1388,7 @@ class WikipediaCrawler:
                                 "to_title": clean_title,
                                 "to_slug": current_slug,
                                 "to_url": page_url,
+                                "section": inc_item.get("section", "Lead / Introduction"),
                                 "anchor_text": inc_item.get("title", clean_title),
                                 "words_before": "",
                                 "words_after": "",
@@ -1432,6 +1486,7 @@ class WikipediaCrawler:
                                     "to_title": clean_title,
                                     "to_slug": current_slug,
                                     "to_url": page_url,
+                                    "section": inc.get("section", "Backlinks / Incoming"),
                                     "anchor_text": p_title,
                                     "words_before": "",
                                     "words_after": "",

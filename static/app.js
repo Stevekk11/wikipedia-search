@@ -691,6 +691,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const hasBefore = Boolean(step.words_before && step.words_before.trim());
             const hasAfter = Boolean(step.words_after && step.words_after.trim());
             const anchorText = step.anchor_text || step.to_title;
+            const sectionText = step.section || "Lead / Introduction";
 
             if (hasBefore || hasAfter || anchorText) {
                 const beforePart = hasBefore ? `... ${escapeHtml(step.words_before)}` : "(Section start)";
@@ -714,6 +715,18 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 `;
             }
+
+            // Section / Subtitle indicator badge
+            const sectionHtml = `
+                <div class="mb-2 d-flex align-items-center flex-wrap gap-1 small">
+                    <span class="text-body-secondary fw-semibold">
+                        <i class="bi bi-bookmark-fill text-warning me-1"></i>Found under section / subtitle:
+                    </span>
+                    <span class="badge bg-dark-subtle text-dark-emphasis border border-secondary-subtle px-2 py-1">
+                        ${escapeHtml(sectionText)}
+                    </span>
+                </div>
+            `;
 
             let reasonsHtml = "";
             if (step.reasons && step.reasons.length > 0) {
@@ -789,6 +802,8 @@ document.addEventListener("DOMContentLoaded", () => {
                         ${escapeHtml(step.explanation || "Selected based on graph traversal priority.")}
                     </div>
                 </div>
+
+                ${sectionHtml}
 
                 ${contextSnippetHtml}
 
