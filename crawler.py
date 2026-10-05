@@ -544,6 +544,36 @@ async def extract_target_link_context(page: Page, source_slug: str, target_slug:
         "requested_words": words_count,
     }
 
+async def enrich_final_steps_context(page: Page, final_steps: List[Dict]):
+    """
+    Post-crawl resolution (Fix 4): For any step in the winning path where in-page
+    context is missing (such as reverse backlink feeders), navigate to the source page
+    and extract the real section subtitle, in-page anchor text, and 15 words before/after.
+    Since this runs only once for the winning path (1-3 steps), it has zero impact on search speed.
+    """
+    for step in final_steps:
+        if not step.get("words_before") and not step.get("words_after"):
+            from_slug = step.get("from_slug")
+            to_slug = step.get("to_slug")
+            to_title = step.get("to_title")
+            if from_slug and to_slug:
+                try:
+                    c = await extract_target_link_context(page, from_slug, to_slug, to_title or to_slug, words_count=15)
+                    if c:
+                        if c.get("words_before") or c.get("words_after"):
+                            step["words_before"] = c.get("words_before", "")
+                            step["words_after"] = c.get("words_after", "")
+                        if c.get("anchor_text"):
+                            step["anchor_text"] = c.get("anchor_text")
+                        sec = c.get("section")
+                        if sec and sec != "Lead / Introduction":
+                            step["section"] = sec
+                        elif not step.get("section") or step.get("section") == "Backlinks / Incoming":
+                            step["section"] = sec or "Lead / Introduction"
+                except Exception as e:
+                    logger.debug(f"Could not enrich intermediate step context for {from_slug}: {e}")
+
+
 
 class WikipediaCrawler:
     """
@@ -718,6 +748,8 @@ class WikipediaCrawler:
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
 
+                            await enrich_final_steps_context(page, final_steps)
+
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
                             )
@@ -890,6 +922,7 @@ class WikipediaCrawler:
                             "url": page_url,
                             "depth": depth,
                             "links_count": len(extracted_links),
+                            "links_type": "outgoing",
                             "snippet": lead_snippet,
                             "screenshot": screenshot_b64,
                             "path_so_far": path_titles,
@@ -964,6 +997,8 @@ class WikipediaCrawler:
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
 
+                            await enrich_final_steps_context(page, final_steps)
+
                             ctx = await extract_target_link_context(
                                 page, current_slug, target_match["slug"], matched_title, self.context_words
                             )
@@ -1023,6 +1058,8 @@ class WikipediaCrawler:
 
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
+
+                            await enrich_final_steps_context(page, final_steps)
 
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
@@ -1132,6 +1169,8 @@ class WikipediaCrawler:
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
 
+                            await enrich_final_steps_context(page, final_steps)
+
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
                             )
@@ -1172,6 +1211,8 @@ class WikipediaCrawler:
 
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
+
+                            await enrich_final_steps_context(page, final_steps)
 
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
@@ -1239,6 +1280,8 @@ class WikipediaCrawler:
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
 
+                            await enrich_final_steps_context(page, final_steps)
+
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
                             )
@@ -1280,6 +1323,7 @@ class WikipediaCrawler:
                             "url": page_url,
                             "depth": depth,
                             "links_count": len(incoming_backlinks),
+                            "links_type": "incoming_backlinks",
                             "snippet": lead_snippet,
                             "screenshot": screenshot_b64,
                             "path_so_far": path_titles,
@@ -1328,8 +1372,8 @@ class WikipediaCrawler:
                                 "to_title": clean_title,
                                 "to_slug": current_slug,
                                 "to_url": page_url,
-                                "section": start_hit.get("section", "Lead / Introduction"),
-                                "anchor_text": start_hit.get("title", clean_title),
+                                "section": start_hit.get("section", "Backlinks / Incoming"),
+                                "anchor_text": clean_title,
                                 "words_before": "",
                                 "words_after": "",
                                 "hop": 1,
@@ -1355,6 +1399,8 @@ class WikipediaCrawler:
 
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
+
+                            await enrich_final_steps_context(page, final_steps)
 
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
@@ -1388,8 +1434,8 @@ class WikipediaCrawler:
                                 "to_title": clean_title,
                                 "to_slug": current_slug,
                                 "to_url": page_url,
-                                "section": inc_item.get("section", "Lead / Introduction"),
-                                "anchor_text": inc_item.get("title", clean_title),
+                                "section": inc_item.get("section", "Backlinks / Incoming"),
+                                "anchor_text": clean_title,
                                 "words_before": "",
                                 "words_after": "",
                                 "hop": depth + 1,
@@ -1415,6 +1461,8 @@ class WikipediaCrawler:
 
                             for idx, s in enumerate(final_steps):
                                 s["hop"] = idx + 1
+
+                            await enrich_final_steps_context(page, final_steps)
 
                             ctx = await extract_target_link_context(
                                 page, final_path_slugs[-2], final_path_slugs[-1], final_path_titles[-1], self.context_words
@@ -1487,7 +1535,7 @@ class WikipediaCrawler:
                                     "to_slug": current_slug,
                                     "to_url": page_url,
                                     "section": inc.get("section", "Backlinks / Incoming"),
-                                    "anchor_text": p_title,
+                                    "anchor_text": clean_title,
                                     "words_before": "",
                                     "words_after": "",
                                     "hop": depth + 1,

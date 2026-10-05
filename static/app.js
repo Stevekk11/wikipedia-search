@@ -492,7 +492,8 @@ document.addEventListener("DOMContentLoaded", () => {
             kpiCurrentDepth.textContent = page.depth;
             kpiDepthSub.textContent = `Hop level ${page.depth}`;
             kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
-            kpiLinksSub.textContent = `+${page.links_count} from this page`;
+            const linkKind = (page.links_type === 'incoming_backlinks' || page.direction === 'backward') ? 'backlinks' : 'outgoing';
+            kpiLinksSub.textContent = `+${page.links_count} ${linkKind} on this step`;
 
             if (liveDirectionBadge) {
                 if (page.direction === "backward") {
@@ -691,9 +692,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const hasBefore = Boolean(step.words_before && step.words_before.trim());
             const hasAfter = Boolean(step.words_after && step.words_after.trim());
             const anchorText = step.anchor_text || step.to_title;
-            const sectionText = step.section || "Lead / Introduction";
+            const isBacklinksPlaceholder = !step.section || step.section === "Backlinks / Incoming";
+            const sectionText = isBacklinksPlaceholder ? "" : step.section;
 
-            if (hasBefore || hasAfter || anchorText) {
+            if (hasBefore || hasAfter) {
                 const beforePart = hasBefore ? `... ${escapeHtml(step.words_before)}` : "(Section start)";
                 const afterPart = hasAfter ? `${escapeHtml(step.words_after)} ...` : "(Section end)";
                 contextSnippetHtml = `
@@ -714,19 +716,40 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
                     </div>
                 `;
+            } else if (step.is_feeder || isBacklinksPlaceholder) {
+                contextSnippetHtml = `
+                    <div class="p-2.5 rounded-2 bg-body-tertiary border small text-muted mb-2 d-flex align-items-center gap-2">
+                        <i class="bi bi-diagram-3 text-info"></i>
+                        <span>Discovered via Wikipedia incoming backlinks graph to <strong>${escapeHtml(step.to_title)}</strong>.</span>
+                    </div>
+                `;
             }
 
             // Section / Subtitle indicator badge
-            const sectionHtml = `
-                <div class="mb-2 d-flex align-items-center flex-wrap gap-1 small">
-                    <span class="text-body-secondary fw-semibold">
-                        <i class="bi bi-bookmark-fill text-warning me-1"></i>Found under section / subtitle:
-                    </span>
-                    <span class="badge bg-dark-subtle text-dark-emphasis border border-secondary-subtle px-2 py-1">
-                        ${escapeHtml(sectionText)}
-                    </span>
-                </div>
-            `;
+            let sectionHtml = "";
+            if (!isBacklinksPlaceholder && sectionText) {
+                sectionHtml = `
+                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 small">
+                        <span class="text-body-secondary fw-semibold">
+                            <i class="bi bi-bookmark-fill text-warning me-1"></i>Found under section / subtitle:
+                        </span>
+                        <span class="badge bg-dark-subtle text-dark-emphasis border border-secondary-subtle px-2 py-1">
+                            ${escapeHtml(sectionText)}
+                        </span>
+                    </div>
+                `;
+            } else {
+                sectionHtml = `
+                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 small">
+                        <span class="text-body-secondary fw-semibold">
+                            <i class="bi bi-diagram-3-fill text-info me-1"></i>Link Source:
+                        </span>
+                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-2 py-1">
+                            Wikipedia Incoming Backlinks Graph
+                        </span>
+                    </div>
+                `;
+            }
 
             let reasonsHtml = "";
             if (step.reasons && step.reasons.length > 0) {
@@ -870,7 +893,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 </span>
             </td>
             <td>
-                <span class="fw-semibold font-monospace">${page.links_count.toLocaleString()}</span> links
+                <span class="fw-semibold font-monospace">${page.links_count.toLocaleString()}</span> <span class="text-secondary small ms-1">${(page.links_type === "incoming_backlinks" || page.direction === "backward") ? "backlinks" : "outgoing"}</span>
             </td>
             <td>
                 <small class="text-secondary d-inline-block text-truncate" style="max-width: 320px;" title="${escapeHtml(page.snippet)}">
