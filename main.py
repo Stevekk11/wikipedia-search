@@ -246,4 +246,10 @@ async def websocket_search(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)
+    from run import get_or_create_ssl_cert
+    cert_file, key_file = get_or_create_ssl_cert()
+    ssl_kwargs = {}
+    if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
+        ssl_kwargs["ssl_certfile"] = cert_file
+        ssl_kwargs["ssl_keyfile"] = key_file
+    uvicorn.run("main:app", host="127.0.0.1", port=8005, reload=False, **ssl_kwargs)
