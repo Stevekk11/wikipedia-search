@@ -535,8 +535,8 @@ class WikipediaCrawler:
         self.start_input = start_input
         self.target_input = target_input
         self.algorithm = algorithm.lower()
-        self.max_pages = max(5, min(max_pages, 100))
-        self.max_depth = max(1, min(max_depth, 6))
+        self.max_pages = max(5, min(max_pages, 1000))
+        self.max_depth = max(1, min(max_depth, 50))
         self.headless = headless
         self.capture_screenshots = capture_screenshots
         self.context_words = max(20, min(context_words, 500))
