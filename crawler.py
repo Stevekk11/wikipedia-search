@@ -903,6 +903,7 @@ class WikipediaCrawler:
                                 "is_feeder": False,
                                 "badge": "🎯 Target Discovered",
                                 "badge_class": "bg-success text-white",
+                                "badges": [{"text": "🎯 Target Discovered", "class": "bg-success text-white"}],
                                 "reasons": [
                                     f"Direct live hyperlink to '{matched_title}' discovered on '{clean_title}'",
                                     "Target destination reached",
@@ -953,6 +954,10 @@ class WikipediaCrawler:
                                 "is_feeder": True,
                                 "badge": "🤝 Meeting Bridge",
                                 "badge_class": "bg-warning text-dark",
+                                "badges": [
+                                    {"text": "🤝 Meeting Bridge", "class": "bg-warning text-dark"},
+                                    {"text": "Frontier Intersection", "class": "bg-primary-subtle text-primary border border-primary-subtle"},
+                                ],
                                 "reasons": [
                                     "Simultaneous bidirectional frontier intersection",
                                     f"Forward search from '{start_info['title']}' met reverse search from '{target_info['title']}'",
@@ -1009,6 +1014,7 @@ class WikipediaCrawler:
                                     depth=depth + 1,
                                     algorithm=self.algorithm,
                                 )
+                                badges_list = [{"text": badge, "class": badge_class}]
                                 step_data = {
                                     "from_title": clean_title,
                                     "from_slug": current_slug,
@@ -1024,6 +1030,7 @@ class WikipediaCrawler:
                                     "is_feeder": is_feeder,
                                     "badge": badge,
                                     "badge_class": badge_class,
+                                    "badges": badges_list,
                                     "reasons": reasons,
                                     "explanation": explanation,
                                 }
@@ -1100,6 +1107,10 @@ class WikipediaCrawler:
                             bridge_step = f_out["step_info"]
                             bridge_step["badge"] = "🤝 Meeting Bridge"
                             bridge_step["badge_class"] = "bg-warning text-dark"
+                            bridge_step_badges = bridge_step.get("badges", [])
+                            # Avoid duplicate bridge badge
+                            if not any("Meeting Bridge" in b.get("text", "") for b in bridge_step_badges):
+                                bridge_step["badges"] = [{"text": "🤝 Meeting Bridge", "class": "bg-warning text-dark"}] + bridge_step_badges
                             bridge_step["explanation"] = f"Frontiers met! Forward search from '{start_info['title']}' connected with reverse search from '{target_info['title']}' on '{current_title}'."
 
                             final_path_titles = f_out["path_titles"] + path_titles[1:]
@@ -1273,6 +1284,10 @@ class WikipediaCrawler:
                                 "is_feeder": True,
                                 "badge": "🤝 Meeting Bridge",
                                 "badge_class": "bg-warning text-dark",
+                                "badges": [
+                                    {"text": "🤝 Meeting Bridge", "class": "bg-warning text-dark"},
+                                    {"text": "⭐ Start Connector", "class": "bg-success text-white"},
+                                ],
                                 "reasons": [
                                     "Simultaneous bidirectional frontier intersection",
                                     f"Start article '{start_info['title']}' contains direct link to reverse feeder '{clean_title}'",
@@ -1328,6 +1343,10 @@ class WikipediaCrawler:
                                 "is_feeder": True,
                                 "badge": "🤝 Meeting Bridge",
                                 "badge_class": "bg-warning text-dark",
+                                "badges": [
+                                    {"text": "🤝 Meeting Bridge", "class": "bg-warning text-dark"},
+                                    {"text": "Frontier Intersection", "class": "bg-primary-subtle text-primary border border-primary-subtle"},
+                                ],
                                 "reasons": [
                                     "Simultaneous bidirectional frontier intersection",
                                     f"Forward frontier met backward feeder '{clean_title}' via '{inc_title}'",
@@ -1386,15 +1405,25 @@ class WikipediaCrawler:
                                     algorithm=self.algorithm,
                                 )
 
-                                # Badge indicating reverse feeder
-                                if "Target Match" in badge:
-                                    badge = "⭐ Start Connector"
-                                    badge_class = "bg-warning text-dark"
+                                # Build badges list preserving both reverse feeder role and relevance scores
+                                badges_list = [
+                                    {"text": "⏪ Reverse Feeder", "class": "bg-info text-dark"}
+                                ]
+                                if "Target Match" in badge or "Start" in badge:
+                                    badges_list.append({"text": "⭐ Start Connector", "class": "bg-warning text-dark"})
+                                    primary_badge = "⭐ Start Connector"
+                                    primary_badge_class = "bg-warning text-dark"
                                 elif "Global Connector Hub" in badge:
-                                    badge = "🌐 Global Reverse Hub"
+                                    badges_list.append({"text": "🌐 Global Connector Hub", "class": "bg-primary text-white"})
+                                    primary_badge = "🌐 Global Reverse Hub"
+                                    primary_badge_class = "bg-primary text-white"
+                                elif badge and badge != "Candidate Neighbor":
+                                    badges_list.append({"text": badge, "class": badge_class})
+                                    primary_badge = badge
+                                    primary_badge_class = badge_class
                                 else:
-                                    badge = "⏪ Reverse Feeder"
-                                    badge_class = "bg-info text-dark"
+                                    primary_badge = "⏪ Reverse Feeder"
+                                    primary_badge_class = "bg-info text-dark"
 
                                 step_data = {
                                     "from_title": p_title,
@@ -1409,8 +1438,9 @@ class WikipediaCrawler:
                                     "hop": depth + 1,
                                     "score": round(link_score, 1),
                                     "is_feeder": True,
-                                    "badge": badge,
-                                    "badge_class": badge_class,
+                                    "badge": primary_badge,
+                                    "badge_class": primary_badge_class,
+                                    "badges": badges_list,
                                     "reasons": reasons + ["Reverse feeder leading towards target article"],
                                     "explanation": f"Reverse graph search: '{p_title}' links directly into '{clean_title}', building an incoming path towards '{target_info['title']}'.",
                                 }

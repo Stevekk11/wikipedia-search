@@ -748,6 +748,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 `;
             }
 
+            // Multiple Badges support
+            let badgesHtml = "";
+            if (Array.isArray(step.badges) && step.badges.length > 0) {
+                badgesHtml = step.badges.map(b => {
+                    const text = typeof b === "string" ? b : b.text || "";
+                    const bClass = (typeof b === "object" && b.class) ? b.class : "bg-secondary text-white";
+                    return `<span class="badge ${bClass}">${escapeHtml(text)}</span>`;
+                }).join(" ");
+            } else {
+                badgesHtml = `<span class="badge ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>`;
+            }
+
             card.innerHTML = `
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 pb-2 mb-2 border-bottom">
                     <div class="d-flex align-items-center flex-wrap gap-2">
@@ -764,8 +776,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             </a>
                         </div>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="badge ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        ${badgesHtml}
                         <span class="badge ${scoreBadgeClass} font-monospace">Score: ${formattedScore}</span>
                     </div>
                 </div>
