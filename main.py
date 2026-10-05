@@ -252,4 +252,4 @@ if __name__ == "__main__":
     if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
         ssl_kwargs["ssl_certfile"] = cert_file
         ssl_kwargs["ssl_keyfile"] = key_file
-    uvicorn.run("main:app", host="127.0.0.1", port=8005, reload=False, **ssl_kwargs)
+    uvicorn.run("main:app", host="127.0.0.1", port=8005, reload=False, ws="auto", **ssl_kwargs)

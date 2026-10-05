@@ -92,7 +92,7 @@ def main():
         ssl_kwargs["ssl_certfile"] = cert_file
         ssl_kwargs["ssl_keyfile"] = key_file
 
-    uvicorn.run("main:app", host=host, port=port, reload=False, **ssl_kwargs)
+    uvicorn.run("main:app", host=host, port=port, reload=False, ws="auto", **ssl_kwargs)
 
 
 if __name__ == "__main__":
