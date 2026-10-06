@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
         maxDepth: 5,
         captureScreenshots: true,
         useEmbeddings: true,
+        adaptiveBalancing: true,
         headless: true,
     };
 
@@ -61,6 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const modalMaxDepthBadge = document.getElementById("modalMaxDepthBadge");
     const modalScreenshotToggle = document.getElementById("modalScreenshotToggle");
     const modalEmbeddingsToggle = document.getElementById("modalEmbeddingsToggle");
+    const modalBalancingToggle = document.getElementById("modalBalancingToggle");
     const modalHeadlessToggle = document.getElementById("modalHeadlessToggle");
     const saveSettingsBtn = document.getElementById("saveSettingsBtn");
     const resetSettingsBtn = document.getElementById("resetSettingsBtn");
@@ -193,6 +195,7 @@ document.addEventListener("DOMContentLoaded", () => {
         appSettings.maxDepth = parseInt(modalMaxDepth.value) || 5;
         appSettings.captureScreenshots = modalScreenshotToggle.checked;
         appSettings.useEmbeddings = modalEmbeddingsToggle.checked;
+        appSettings.adaptiveBalancing = modalBalancingToggle.checked;
         appSettings.headless = modalHeadlessToggle.checked;
 
         localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
@@ -257,6 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
         modalMaxDepthBadge.textContent = appSettings.maxDepth;
         modalScreenshotToggle.checked = appSettings.captureScreenshots;
         modalEmbeddingsToggle.checked = appSettings.useEmbeddings !== false;
+        modalBalancingToggle.checked = appSettings.adaptiveBalancing !== false;
         modalHeadlessToggle.checked = appSettings.headless;
 
         // Summary Badges
@@ -979,6 +983,7 @@ document.addEventListener("DOMContentLoaded", () => {
             capture_screenshots: appSettings.captureScreenshots,
             headless: appSettings.headless,
             use_embeddings: appSettings.useEmbeddings,
+            adaptive_balancing: appSettings.adaptiveBalancing,
             context_words: appSettings.contextWords,
         };
 

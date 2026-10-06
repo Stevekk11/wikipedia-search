@@ -379,6 +379,7 @@ async def websocket_search(websocket: WebSocket):
         headless = bool(params.get("headless", True))
         context_words = int(params.get("context_words", 150))
         use_embeddings = bool(params.get("use_embeddings", True))
+        adaptive_balancing = bool(params.get("adaptive_balancing", True))
 
         current_crawler = WikipediaCrawler(
             start_input=start,
@@ -391,6 +392,7 @@ async def websocket_search(websocket: WebSocket):
             context_words=context_words,
             lang=lang,
             use_embeddings=use_embeddings,
+            adaptive_balancing=adaptive_balancing,
         )
 
         try:

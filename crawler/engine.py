@@ -52,10 +52,12 @@ class WikipediaCrawler:
         context_words: int = 150,
         lang: str = "en",
         use_embeddings: bool = True,
+        adaptive_balancing: bool = True,
     ):
         self.start_input = start_input
         self.target_input = target_input
         self.use_embeddings = use_embeddings
+        self.adaptive_balancing = adaptive_balancing
         self.algorithm = algorithm.lower()
         self.max_pages = max(5, min(max_pages, 1000))
         self.max_depth = max(1, min(max_depth, 50))
@@ -246,9 +248,9 @@ class WikipediaCrawler:
                     # so a small/starved side (e.g. obscure target with few incoming links)
                     # is exhausted immediately instead of waiting for alternating turns.
                     if forward_queue and backward_queue:
-                        if len(forward_queue) < len(backward_queue):
+                        if self.adaptive_balancing and len(forward_queue) < len(backward_queue):
                             turn_direction = "forward"
-                        elif len(backward_queue) < len(forward_queue):
+                        elif self.adaptive_balancing and len(backward_queue) < len(forward_queue):
                             turn_direction = "backward"
                         else:
                             turn_direction = "forward" if (visited_count % 2 == 0) else "backward"
