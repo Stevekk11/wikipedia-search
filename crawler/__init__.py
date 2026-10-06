@@ -19,6 +19,7 @@ from .config import (
     HIGH_CENTRALITY_HUBS,
 )
 from .api import (
+    fetch_article_assessments,
     fetch_target_backlinks,
     fetch_target_categories,
     get_wikipedia_info,
@@ -41,6 +42,7 @@ __all__ = [
     "normalize_slug_or_title",
     "fetch_target_backlinks",
     "fetch_target_categories",
+    "fetch_article_assessments",
     "compute_relevance_score",
     "launch_playwright_browser",
     "extract_page_summary",

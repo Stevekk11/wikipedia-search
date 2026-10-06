@@ -1,7 +1,8 @@
 """
 FastAPI application for Wikipedia Link Hop Counter using Playwright.
 Provides WebSocket streaming for real-time crawler updates,
-Wikipedia autocomplete API, and serves the Bootstrap frontend.
+Wikipedia autocomplete API, article assessment scoring API,
+and serves the Bootstrap frontend.
 """
 
 import asyncio
@@ -9,6 +10,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import urllib.parse
 from typing import Dict, Optional
@@ -24,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from crawler import WikipediaCrawler, get_wikipedia_info
+from crawler import WikipediaCrawler, get_wikipedia_info, fetch_article_assessments
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wikipedia_app")
@@ -105,6 +107,20 @@ async def get_info(title: str = Query(...)):
     """Fetch article canonical metadata, snippet, and thumbnail."""
     info = get_wikipedia_info(title)
     return JSONResponse(info)
+
+
+@app.get("/api/article-assessments")
+async def get_article_assessments(titles: str = Query(..., description="Comma or pipe-separated article titles or slugs")):
+    """
+    Fetch Wikipedia article quality assessments, Bootstrap icons, colors, and WikiProjects.
+    """
+    try:
+        clean_titles = [t.strip() for t in re.split(r"[,|]", titles) if t.strip()]
+        data = fetch_article_assessments(clean_titles)
+        return JSONResponse(data)
+    except Exception as e:
+        logger.error(f"Error fetching article assessments for '{titles}': {e}")
+        return JSONResponse({}, status_code=500)
 
 
 @app.get("/api/presets")

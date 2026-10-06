@@ -23,7 +23,22 @@
     <nav class="navbar navbar-expand-lg border-bottom sticky-top bg-body glass-navbar">
         <div class="container-xl">
             <a class="navbar-brand d-flex align-items-center gap-2 fw-bold text-gradient" href="#">
-                <img src="/static/favicon.svg" alt="WikiHop Logo" width="36" height="36" class="rounded-3 shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="36" height="36" class="rounded-3 shadow-sm flex-shrink-0" aria-label="WikiHop Logo">
+                  <defs>
+                    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#4f46e5" />
+                      <stop offset="100%" stop-color="#06b6d4" />
+                    </linearGradient>
+                  </defs>
+                  <rect width="64" height="64" rx="14" fill="url(#logoGrad)" />
+                  <circle cx="18" cy="46" r="6" fill="#ffffff" />
+                  <circle cx="32" cy="18" r="6" fill="#ffffff" />
+                  <circle cx="46" cy="46" r="6" fill="#ffffff" />
+                  <path d="M 18 46 L 32 18 L 46 46" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                  <circle cx="32" cy="18" r="2.5" fill="#4f46e5" />
+                  <circle cx="18" cy="46" r="2.5" fill="#4f46e5" />
+                  <circle cx="46" cy="46" r="2.5" fill="#06b6d4" />
+                </svg>
                 <span>WikiHop</span>
             </a>
             <div class="d-flex align-items-center gap-2">

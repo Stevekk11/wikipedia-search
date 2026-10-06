@@ -349,3 +349,111 @@ body {
     background: rgba(59, 130, 246, 0.08) !important;
     border-left-color: #3b82f6 !important;
 }
+
+/* Quality Assessment Badges & WikiProject Tags */
+.assessment-badge {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.25rem 0.6rem;
+    border-radius: 8px;
+    font-size: 0.74rem;
+    display: inline-flex;
+    align-items: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+}
+
+.assessment-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.assessment-badge.badge-fa {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.assessment-badge.badge-fl {
+    background-color: #0284c7 !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-ga {
+    background-color: #16a34a !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.assessment-badge.badge-a {
+    background-color: #0891b2 !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-b {
+    background-color: #65a30d !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-c {
+    background-color: #ca8a04 !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-start {
+    background-color: #ea580c !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-stub {
+    background-color: #dc2626 !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-list {
+    background-color: #7c3aed !important;
+    color: #ffffff !important;
+}
+
+.assessment-badge.badge-unassessed {
+    background-color: #4b5563 !important;
+    color: #e5e7eb !important;
+}
+
+/* WikiProject Badge Styles */
+.wikiproject-pill {
+    font-size: 0.72rem;
+    font-weight: 500;
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    background: rgba(99, 102, 241, 0.12);
+    color: #6366f1;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-flex;
+    align-items: center;
+}
+
+[data-bs-theme="dark"] .wikiproject-pill {
+    background: rgba(129, 140, 248, 0.15);
+    color: #a5b4fc;
+    border-color: rgba(129, 140, 248, 0.3);
+}
+
+.wikiproject-more-badge {
+    font-size: 0.68rem;
+    border-radius: 6px;
+    padding: 0.18rem 0.4rem;
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--bs-secondary-color);
+    border: 1px solid var(--bs-border-color);
+    cursor: help;
+}
+
+.hop-node {
+    min-width: 200px;
+}

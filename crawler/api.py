@@ -1,19 +1,96 @@
 """
 Wikipedia REST and Action API utilities.
 Handles title normalization, summary/thumbnail metadata lookup,
-target category extraction, and incoming backlinks querying.
+target category extraction, incoming backlinks querying,
+and Wikipedia quality assessment scores & WikiProjects retrieval.
 """
 
 import logging
 import re
 import urllib.parse
-from typing import Dict, Set
+from typing import Dict, List, Optional, Set
 
 import requests
 
 from .config import DEFAULT_REST_USER_AGENT, DEFAULT_USER_AGENT
 
 logger = logging.getLogger("wikipedia_crawler.api")
+
+# Quality assessment grades and hierarchy ranking
+ASSESSMENT_RANKS: Dict[str, int] = {
+    "FA": 10,
+    "FL": 9,
+    "GA": 8,
+    "A": 7,
+    "B": 6,
+    "C": 5,
+    "START": 4,
+    "STUB": 3,
+    "LIST": 2,
+}
+
+CLASS_META: Dict[str, Dict[str, str]] = {
+    "FA": {
+        "name": "Featured Article",
+        "icon": "bi-star-fill",
+        "color": "#2563eb",
+        "badge_class": "badge-fa",
+    },
+    "FL": {
+        "name": "Featured List",
+        "icon": "bi-award-fill",
+        "color": "#0284c7",
+        "badge_class": "badge-fl",
+    },
+    "GA": {
+        "name": "Good Article",
+        "icon": "bi-patch-check-fill",
+        "color": "#16a34a",
+        "badge_class": "badge-ga",
+    },
+    "A": {
+        "name": "A-Class",
+        "icon": "bi-check-circle-fill",
+        "color": "#0891b2",
+        "badge_class": "badge-a",
+    },
+    "B": {
+        "name": "B-Class",
+        "icon": "bi-file-earmark-check-fill",
+        "color": "#65a30d",
+        "badge_class": "badge-b",
+    },
+    "C": {
+        "name": "C-Class",
+        "icon": "bi-file-earmark-text-fill",
+        "color": "#ca8a04",
+        "badge_class": "badge-c",
+    },
+    "START": {
+        "name": "Start-Class",
+        "icon": "bi-play-circle-fill",
+        "color": "#ea580c",
+        "badge_class": "badge-start",
+    },
+    "STUB": {
+        "name": "Stub-Class",
+        "icon": "bi-file-earmark-minus-fill",
+        "color": "#dc2626",
+        "badge_class": "badge-stub",
+    },
+    "LIST": {
+        "name": "List-Class",
+        "icon": "bi-list-ul",
+        "color": "#7c3aed",
+        "badge_class": "badge-list",
+    },
+    "UNASSESSED": {
+        "name": "Unassessed",
+        "icon": "bi-question-circle-fill",
+        "color": "#6b7280",
+        "badge_class": "badge-unassessed",
+    },
+}
 
 
 def normalize_slug_or_title(raw_input: str) -> str:
@@ -154,3 +231,130 @@ def fetch_target_categories(target_slug: str) -> Set[str]:
     except Exception as e:
         logger.warning(f"Failed to fetch categories for {target_slug}: {e}")
     return cat_words
+
+
+def parse_page_assessment(title: str, raw_assessments: Optional[Dict]) -> Dict:
+    """
+    Parse the raw MediaWiki pageassessments dictionary for an article.
+    Extracts the highest quality assessment grade, Bootstrap icon,
+    color, and all WikiProjects it belongs to.
+    """
+    projects = []
+    classes = []
+
+    for proj_name, data in (raw_assessments or {}).items():
+        raw_cls = data.get("class", "").strip().upper()
+        if raw_cls:
+            classes.append(raw_cls)
+        if proj_name != "Project-independent assessment":
+            projects.append({
+                "name": proj_name,
+                "importance": data.get("importance", "").strip(),
+                "class": data.get("class", "").strip(),
+            })
+
+    best_cls = "UNASSESSED"
+    best_rank = -1
+    for c in classes:
+        rank = ASSESSMENT_RANKS.get(c, 0)
+        if rank > best_rank:
+            best_rank = rank
+            best_cls = c
+
+    # Sort projects by Wikipedia importance hierarchy
+    imp_order = {"TOP": 4, "HIGH": 3, "MID": 2, "LOW": 1, "": 0}
+    projects.sort(key=lambda p: imp_order.get(p["importance"].upper(), 0), reverse=True)
+
+    meta = CLASS_META.get(best_cls, CLASS_META["UNASSESSED"])
+    primary_proj = projects[0] if projects else None
+
+    # Proper display title
+    display_class = best_cls if best_cls != "UNASSESSED" else "Unassessed"
+
+    return {
+        "title": title,
+        "class": display_class,
+        "class_name": meta["name"],
+        "icon": meta["icon"],
+        "color": meta["color"],
+        "badge_class": meta["badge_class"],
+        "has_wikiproject": len(projects) > 0,
+        "primary_project": primary_proj,
+        "all_projects": [p["name"] for p in projects],
+        "projects": projects,
+    }
+
+
+def fetch_article_assessments(titles_or_slugs: List[str]) -> Dict[str, Dict]:
+    """
+    Batch query Wikipedia Action API for article quality assessments and WikiProjects.
+    Returns a dictionary mapping titles/slugs to assessment info.
+    """
+    if not titles_or_slugs:
+        return {}
+
+    clean_titles = []
+    seen = set()
+    for t in titles_or_slugs:
+        c = normalize_slug_or_title(t).replace("_", " ")
+        if c and c.lower() not in seen:
+            seen.add(c.lower())
+            clean_titles.append(c)
+
+    if not clean_titles:
+        return {}
+
+    headers = {"User-Agent": DEFAULT_REST_USER_AGENT}
+    encoded = "|".join(urllib.parse.quote(t) for t in clean_titles)
+    url = (
+        f"https://en.wikipedia.org/w/api.php?action=query&prop=pageassessments"
+        f"&palimit=500&redirects=1&format=json&titles={encoded}"
+    )
+
+    results: Dict[str, Dict] = {}
+    try:
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code != 200:
+            logger.warning(f"Wikipedia assessments API returned status {resp.status_code}")
+            for req in clean_titles:
+                fallback = parse_page_assessment(req, {})
+                results[req] = fallback
+                results[req.replace(" ", "_")] = fallback
+            return results
+        r = resp.json()
+        query = r.get("query", {})
+        pages = query.get("pages", {})
+
+        alias_map = {}
+        for norm in query.get("normalized", []):
+            alias_map[norm.get("from", "")] = norm.get("to", "")
+        for red in query.get("redirects", []):
+            alias_map[red.get("from", "")] = red.get("to", "")
+
+        for pid, pdata in pages.items():
+            t = pdata.get("title", "")
+            raw_assess = pdata.get("pageassessments", {}) if pid != "-1" else {}
+            parsed = parse_page_assessment(t, raw_assess)
+            results[t] = parsed
+            results[t.replace(" ", "_")] = parsed
+            results[t.lower()] = parsed
+            results[t.lower().replace(" ", "_")] = parsed
+
+        for req in clean_titles:
+            canon = alias_map.get(req, req)
+            if canon in results:
+                results[req] = results[canon]
+                results[req.replace(" ", "_")] = results[canon]
+            elif req not in results:
+                fallback = parse_page_assessment(req, {})
+                results[req] = fallback
+                results[req.replace(" ", "_")] = fallback
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch article assessments for {clean_titles}: {e}")
+        for req in clean_titles:
+            fallback = parse_page_assessment(req, {})
+            results[req] = fallback
+            results[req.replace(" ", "_")] = fallback
+
+    return results

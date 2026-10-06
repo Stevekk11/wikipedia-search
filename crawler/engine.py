@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
 from .api import (
+    fetch_article_assessments,
     fetch_target_backlinks,
     fetch_target_categories,
     get_wikipedia_info,
@@ -93,12 +94,15 @@ class WikipediaCrawler:
             page, source_slug, target_slug, target_title, self.context_words, source_title=source_title
         )
 
+        assessments = fetch_article_assessments(final_path_titles)
+
         return {
             "event": "found",
             "hops": hops,
             "path": final_path_titles,
             "slugs": final_path_slugs,
             "urls": [f"https://en.wikipedia.org/wiki/{s}" for s in final_path_slugs],
+            "assessments": assessments,
             "total_visited": visited_count,
             "forward_visited_count": len(forward_visited),
             "backward_visited_count": len(backward_visited),
@@ -128,12 +132,14 @@ class WikipediaCrawler:
 
         # Check trivial case: Start == Target
         if start_slug_lower == target_slug_lower:
+            assessments = fetch_article_assessments([start_info["title"]])
             yield {
                 "event": "found",
                 "hops": 0,
                 "path": [start_info["title"]],
                 "slugs": [start_info["slug"]],
                 "urls": [start_info["url"]],
+                "assessments": assessments,
                 "total_visited": 1,
                 "forward_visited_count": 1,
                 "backward_visited_count": 0,

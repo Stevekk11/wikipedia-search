@@ -503,6 +503,16 @@ document.addEventListener("DOMContentLoaded", () => {
             currentLinkContext = item.result_data.link_context || null;
             showResultCard(item.result_data);
             resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+            if (!item.result_data.assessments && currentFoundPath.length > 0) {
+                fetchAssessmentsForPath(currentFoundPath).then(ass => {
+                    if (ass && Object.keys(ass).length > 0) {
+                        item.result_data.assessments = ass;
+                        saveHistoryToStorage();
+                        showResultCard(item.result_data);
+                    }
+                });
+            }
         } else {
             resultCard.classList.add("d-none");
             if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
@@ -923,6 +933,78 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+
+    // --- Article Quality Assessment & WikiProject Utilities ---
+    function getAssessmentData(title, assessments) {
+        if (!assessments || !title) return null;
+        return assessments[title] ||
+               assessments[title.replace(/ /g, "_")] ||
+               assessments[title.toLowerCase()] ||
+               assessments[title.toLowerCase().replace(/ /g, "_")] ||
+               null;
+    }
+
+    function renderAssessmentBadgeHtml(assessment) {
+        if (!assessment || !assessment.class || assessment.class === "Unassessed") {
+            return `
+                <span class="badge assessment-badge badge-unassessed" title="Assessment: Unassessed or pending evaluation">
+                    <i class="bi bi-question-circle-fill me-1"></i>Unassessed
+                </span>
+            `;
+        }
+        const badgeClass = assessment.badge_class || "badge-unassessed";
+        const icon = assessment.icon || "bi-patch-check-fill";
+        const cls = assessment.class || "Unassessed";
+        const fullName = assessment.class_name || `${cls} Class`;
+        return `
+            <span class="badge assessment-badge ${badgeClass}" title="Quality Assessment: ${escapeHtml(fullName)}">
+                <i class="bi ${icon} me-1"></i>${escapeHtml(cls)}
+            </span>
+        `;
+    }
+
+    function renderWikiProjectHtml(assessment) {
+        if (!assessment || !assessment.has_wikiproject || !assessment.primary_project) {
+            return "";
+        }
+        const primary = assessment.primary_project;
+        const impText = primary.importance ? ` (${escapeHtml(primary.importance)} Importance)` : "";
+        const allProjects = assessment.all_projects || [];
+        const extraCount = allProjects.length - 1;
+
+        let moreBadgeHtml = "";
+        if (extraCount > 0) {
+            const remainingProjects = allProjects.slice(1).join(", ");
+            moreBadgeHtml = `
+                <span class="badge wikiproject-more-badge" title="Additional WikiProjects: ${escapeHtml(remainingProjects)}">
+                    +${extraCount} more
+                </span>
+            `;
+        }
+
+        return `
+            <div class="d-flex flex-wrap align-items-center gap-1 mt-1 w-100">
+                <span class="badge wikiproject-pill text-truncate" title="WikiProject ${escapeHtml(primary.name)}${impText}">
+                    <i class="bi bi-diagram-2-fill me-1"></i>WikiProject ${escapeHtml(primary.name)}
+                </span>
+                ${moreBadgeHtml}
+            </div>
+        `;
+    }
+
+    async function fetchAssessmentsForPath(titles) {
+        if (!titles || !titles.length) return null;
+        try {
+            const res = await fetch(`/api/article-assessments?titles=${encodeURIComponent(titles.join(","))}`);
+            if (res.ok) {
+                return await res.json();
+            }
+        } catch (e) {
+            console.warn("Failed to fetch assessments:", e);
+        }
+        return null;
+    }
+
     // --- Show Result Card & Context ---
     function showResultCard(data) {
         resultCard.classList.remove("d-none");
@@ -952,25 +1034,36 @@ document.addEventListener("DOMContentLoaded", () => {
             and connected <strong>${escapeHtml(startTitle)}</strong> to <strong>${escapeHtml(targetTitle)}</strong> in exactly <strong>${hops}</strong> link hop${hops === 1 ? "" : "s"}.
         `;
 
-        // Render Visual Hop Chain
+        // Render Visual Hop Chain with Assessment Score & WikiProjects
         hopChainWrapper.innerHTML = "";
         data.path.forEach((title, index) => {
             const isStart = index === 0;
             const isTarget = index === data.path.length - 1;
             const url = data.urls ? data.urls[index] : `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+            const assessment = getAssessmentData(title, data.assessments);
 
             const node = document.createElement("div");
             node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
             
-            let icon = isStart ? '<i class="bi bi-geo-alt-fill"></i>' : isTarget ? '<i class="bi bi-flag-fill"></i>' : '<i class="bi bi-link-45deg"></i>';
-            let label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : `Hop ${index}`;
+            const icon = isStart ? '<i class="bi bi-geo-alt-fill text-success"></i>' : isTarget ? '<i class="bi bi-flag-fill text-danger"></i>' : '<i class="bi bi-link-45deg text-primary"></i>';
+            const label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : `Hop ${index}`;
+
+            const assessmentBadge = renderAssessmentBadgeHtml(assessment);
+            const wikiProjectBadge = renderWikiProjectHtml(assessment);
 
             node.innerHTML = `
-                ${icon}
-                <div class="d-flex flex-column text-start">
-                    <span style="font-size: 0.72rem; text-transform: uppercase; opacity: 0.85;">${label}</span>
-                    <a href="${url}" target="_blank" class="text-reset text-decoration-none fw-bold">${escapeHtml(title)}</a>
+                <div class="d-flex align-items-center justify-content-between w-100 gap-2 mb-1">
+                    <span class="d-flex align-items-center gap-1" style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; opacity: 0.85;">
+                        ${icon} ${label}
+                    </span>
+                    ${assessmentBadge}
                 </div>
+                <div class="w-100 mb-1">
+                    <a href="${url}" target="_blank" class="text-reset text-decoration-none fw-bold d-block text-truncate" title="${escapeHtml(title)}" style="font-size: 0.95rem;">
+                        ${escapeHtml(title)}
+                    </a>
+                </div>
+                ${wikiProjectBadge}
             `;
             hopChainWrapper.appendChild(node);
 
@@ -983,7 +1076,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         // Render Intermediate Links Used & Algorithmic Rationale
-        renderIntermediateSteps(data.intermediate_steps);
+        renderIntermediateSteps(data.intermediate_steps, data.assessments);
 
         // Render Context Section (150 words before and after)
         const ctx = data.link_context;
@@ -1006,7 +1099,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- Render Intermediate Links Used & Algorithmic Rationale ---
-    function renderIntermediateSteps(steps) {
+    function renderIntermediateSteps(steps, assessments = null) {
         if (!intermediateStepsList || !intermediateStepsCard) return;
         intermediateStepsList.innerHTML = "";
 
@@ -1159,14 +1252,20 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span class="badge bg-primary px-2.5 py-1 rounded-pill fw-bold">
                             Hop ${step.hop || (idx + 1)}
                         </span>
-                        <div class="d-flex align-items-center flex-wrap gap-1 fs-6">
-                            <a href="${step.from_url || '#'}" target="_blank" class="text-body-emphasis text-decoration-none fw-semibold">
-                                ${escapeHtml(step.from_title)}
-                            </a>
+                        <div class="d-flex align-items-center flex-wrap gap-2 fs-6">
+                            <div class="d-inline-flex align-items-center gap-1">
+                                <a href="${step.from_url || '#'}" target="_blank" class="text-body-emphasis text-decoration-none fw-semibold">
+                                    ${escapeHtml(step.from_title)}
+                                </a>
+                                ${renderAssessmentBadgeHtml(getAssessmentData(step.from_title, assessments))}
+                            </div>
                             <i class="bi bi-arrow-right text-primary mx-1"></i>
-                            <a href="${step.to_url || '#'}" target="_blank" class="text-primary text-decoration-none fw-bold">
-                                ${escapeHtml(step.to_title)}
-                            </a>
+                            <div class="d-inline-flex align-items-center gap-1">
+                                <a href="${step.to_url || '#'}" target="_blank" class="text-primary text-decoration-none fw-bold">
+                                    ${escapeHtml(step.to_title)}
+                                </a>
+                                ${renderAssessmentBadgeHtml(getAssessmentData(step.to_title, assessments))}
+                            </div>
                         </div>
                     </div>
                     <div class="d-flex align-items-center flex-wrap gap-2">

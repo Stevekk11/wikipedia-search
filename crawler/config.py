@@ -44,5 +44,5 @@ DEAD_END_PATTERNS: List[str] = [
 INDEX_PREFIXES: List[str] = ["list_of", "timeline_of"]
 
 # Default crawler settings and limits
-DEFAULT_USER_AGENT = "WikiHopBot/2.0 (BidirectionalCrawler/1.0; contact@example.com)"
-DEFAULT_REST_USER_AGENT = "WikiHopBot/1.0 (https://github.com/example/wikipedia-search; contact@example.com)"
+DEFAULT_USER_AGENT = "WikiHopPathfinder/2.0 (WikipediaHopExplorer; https://localhost:8005; wikihop-crawler@edu.local)"
+DEFAULT_REST_USER_AGENT = "WikiHopPathfinder/2.0 (WikipediaHopExplorer; https://localhost:8005; wikihop-crawler@edu.local)"
