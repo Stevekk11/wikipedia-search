@@ -1,7 +1,7 @@
 /**
  * WikiHop Client Application
  * Real-time Wikipedia Link Hop Counter using Playwright & WebSockets
- * With Settings Modal and 150-word Connecting Link Context
+ * With Settings Modal, 150-word Connecting Link Context, and 10 Recent Searches History
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -118,6 +118,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const themeToggleBtn = document.getElementById("themeToggleBtn");
     const themeIcon = document.getElementById("themeIcon");
 
+    // History Offcanvas Elements
+    const historyOffcanvasEl = document.getElementById("historyOffcanvas");
+    const historyList = document.getElementById("historyList");
+    const historyEmptyPlaceholder = document.getElementById("historyEmptyPlaceholder");
+    const historyCountBadge = document.getElementById("historyCountBadge");
+    const clearHistoryBtn = document.getElementById("clearHistoryBtn");
+
     // Internal State
     let socket = null;
     let timerInterval = null;
@@ -126,6 +133,20 @@ document.addEventListener("DOMContentLoaded", () => {
     let visitedPagesList = [];
     let currentFoundPath = [];
     let currentLinkContext = null;
+
+    // History State
+    const MAX_HISTORY_ITEMS = 10;
+    const STORAGE_KEY_HISTORY = "wikihop-search-history";
+    let searchHistory = [];
+    let activeHistoryId = null;
+    let currentCrawlParams = {
+        start: "",
+        target: "",
+        algorithm: "heuristic",
+        maxPages: 35,
+        maxDepth: 5,
+        contextWords: 150,
+    };
 
     // --- Load & Save Settings ---
     function loadSavedSettings() {
@@ -192,6 +213,328 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     loadSavedSettings();
+
+    // --- History Handling (Last 10 Searches) ---
+    function loadSearchHistory() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    searchHistory = parsed;
+                }
+            }
+        } catch (e) {
+            console.error("Error reading search history from localStorage:", e);
+            searchHistory = [];
+        }
+        renderHistoryList();
+    }
+
+    function saveHistoryToStorage() {
+        try {
+            localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(searchHistory));
+        } catch (e) {
+            console.warn("Storage quota warning, stripping screenshots to preserve metadata:", e);
+            // 1st Fallback: Keep screenshots on newest item only
+            const pruned = searchHistory.map((item, idx) => {
+                if (idx > 0 && Array.isArray(item.visited_pages)) {
+                    return {
+                        ...item,
+                        visited_pages: item.visited_pages.map(p => {
+                            const { screenshot, ...rest } = p;
+                            return rest;
+                        })
+                    };
+                }
+                return item;
+            });
+
+            try {
+                localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(pruned));
+                searchHistory = pruned;
+            } catch (e2) {
+                // 2nd Fallback: Strip screenshots entirely to fit text metadata
+                const stripped = searchHistory.map(item => ({
+                    ...item,
+                    visited_pages: Array.isArray(item.visited_pages)
+                        ? item.visited_pages.map(p => {
+                            const { screenshot, ...rest } = p;
+                            return rest;
+                        })
+                        : []
+                }));
+                try {
+                    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(stripped));
+                    searchHistory = stripped;
+                } catch (e3) {
+                    console.error("Failed to store search history:", e3);
+                }
+            }
+        }
+    }
+
+    function saveCurrentSearchToHistory(status, extraData = {}) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const dateStr = now.toLocaleDateString([], { month: "short", day: "numeric" });
+
+        const fCount = extraData.forward_visited_count !== undefined
+            ? extraData.forward_visited_count
+            : visitedPagesList.filter(p => p.direction !== "backward").length;
+        const bCount = extraData.backward_visited_count !== undefined
+            ? extraData.backward_visited_count
+            : visitedPagesList.filter(p => p.direction === "backward").length;
+
+        const maxDepthReached = visitedPagesList.reduce((max, p) => Math.max(max, p.depth || 0), 0);
+
+        const newRecord = {
+            id: Date.now() + "-" + Math.random().toString(36).substring(2, 7),
+            time: timeStr,
+            date: dateStr,
+            start: currentCrawlParams.start || startInput.value.trim(),
+            target: currentCrawlParams.target || targetInput.value.trim(),
+            algorithm: currentCrawlParams.algorithm || appSettings.algorithm,
+            max_pages: currentCrawlParams.maxPages || appSettings.maxPages,
+            max_depth: currentCrawlParams.maxDepth || appSettings.maxDepth,
+            context_words: currentCrawlParams.contextWords || appSettings.contextWords,
+            status: status, // "found" | "not_found" | "cancelled" | "error"
+            status_badge_text: kpiStatusBadge.textContent,
+            message: extraData.message || "",
+            elapsed: kpiElapsedTime.textContent || "0.0s",
+            total_visited: visitedPagesList.length,
+            forward_visited_count: fCount,
+            backward_visited_count: bCount,
+            total_links_accumulated: totalLinksAccumulated,
+            kpi_pages_sub: kpiPagesSub.textContent,
+            kpi_depth_sub: kpiDepthSub.textContent,
+            kpi_links_sub: kpiLinksSub.textContent,
+            max_depth_reached: maxDepthReached,
+            result_data: status === "found" ? extraData : null,
+            visited_pages: visitedPagesList.map(p => ({ ...p }))
+        };
+
+        // Add to front of history list, enforce maximum 10 items
+        searchHistory.unshift(newRecord);
+        if (searchHistory.length > MAX_HISTORY_ITEMS) {
+            searchHistory = searchHistory.slice(0, MAX_HISTORY_ITEMS);
+        }
+
+        activeHistoryId = newRecord.id;
+        saveHistoryToStorage();
+        renderHistoryList();
+    }
+
+    function renderHistoryList() {
+        if (!historyList) return;
+        historyList.innerHTML = "";
+
+        const count = searchHistory.length;
+        if (historyCountBadge) {
+            historyCountBadge.textContent = count;
+            if (count > 0) {
+                historyCountBadge.classList.remove("d-none");
+            } else {
+                historyCountBadge.classList.add("d-none");
+            }
+        }
+
+        if (clearHistoryBtn) {
+            clearHistoryBtn.disabled = count === 0;
+        }
+
+        if (count === 0) {
+            if (historyEmptyPlaceholder) historyEmptyPlaceholder.classList.remove("d-none");
+            return;
+        }
+
+        if (historyEmptyPlaceholder) historyEmptyPlaceholder.classList.add("d-none");
+
+        searchHistory.forEach((item) => {
+            let statusLabel = "";
+            let badgeClass = "";
+            if (item.status === "found") {
+                const hops = item.result_data ? item.result_data.hops : "?";
+                statusLabel = `${hops} Hop${hops === 1 ? "" : "s"}`;
+                badgeClass = "bg-success-subtle text-success-emphasis border border-success-subtle";
+            } else if (item.status === "not_found") {
+                statusLabel = "Limit Reached";
+                badgeClass = "bg-warning-subtle text-warning-emphasis border border-warning-subtle";
+            } else if (item.status === "cancelled") {
+                statusLabel = "Stopped";
+                badgeClass = "bg-secondary-subtle text-secondary border";
+            } else {
+                statusLabel = "Error";
+                badgeClass = "bg-danger-subtle text-danger-emphasis border border-danger-subtle";
+            }
+
+            const isActive = activeHistoryId === item.id;
+            const card = document.createElement("div");
+            card.className = `card p-3 shadow-sm history-item status-${item.status} ${isActive ? "active-history" : ""}`;
+            card.style.cursor = "pointer";
+
+            card.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between mb-1">
+                    <span class="badge ${badgeClass} rounded-pill px-2 py-1" style="font-size: 0.75rem;">
+                        ${statusLabel}
+                    </span>
+                    <small class="text-secondary font-monospace" style="font-size: 0.72rem;">
+                        ${item.date} ${item.time} &bull; ${item.elapsed}
+                    </small>
+                </div>
+                <div class="fw-bold text-body-emphasis text-truncate mb-1" style="font-size: 0.9rem;" title="${escapeHtml(item.start)} \u2192 ${escapeHtml(item.target)}">
+                    ${escapeHtml(item.start)} <i class="bi bi-arrow-right text-primary mx-1"></i> ${escapeHtml(item.target)}
+                </div>
+                <div class="d-flex align-items-center justify-content-between text-secondary small" style="font-size: 0.76rem;">
+                    <span><i class="bi bi-file-earmark-text me-1"></i>${item.total_visited} pages</span>
+                    <span><i class="bi bi-cpu me-1"></i>${item.algorithm === 'heuristic' ? 'Smart A*' : 'BFS'}</span>
+                    <button type="button" class="btn btn-link btn-sm text-danger p-0 delete-item-btn" title="Delete this search" style="line-height: 1;">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                </div>
+            `;
+
+            // Single item deletion
+            const delBtn = card.querySelector(".delete-item-btn");
+            if (delBtn) {
+                delBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    searchHistory = searchHistory.filter(h => h.id !== item.id);
+                    if (activeHistoryId === item.id) activeHistoryId = null;
+                    saveHistoryToStorage();
+                    renderHistoryList();
+                });
+            }
+
+            // Restore complete historical search when clicked
+            card.addEventListener("click", () => {
+                activeHistoryId = item.id;
+                renderHistoryList();
+                restoreHistoricalSearch(item);
+            });
+
+            historyList.appendChild(card);
+        });
+    }
+
+    function restoreHistoricalSearch(item) {
+        // Stop any running search safely
+        if (socket && socket.readyState === WebSocket.OPEN && startBtn.classList.contains("d-none")) {
+            socket.send(JSON.stringify({ action: "stop" }));
+        }
+        setRunningState(false);
+        stopTimer();
+
+        // Populate search inputs
+        startInput.value = item.start;
+        targetInput.value = item.target;
+
+        // Restore KPI & stats counters
+        statsSection.classList.remove("d-none");
+        kpiPagesVisited.textContent = item.total_visited;
+        kpiPagesSub.textContent = item.kpi_pages_sub || `${item.forward_visited_count || 0} forward \u2022 ${item.backward_visited_count || 0} backward`;
+
+        const hopsOrDepth = item.result_data ? item.result_data.hops : item.max_depth_reached;
+        kpiCurrentDepth.textContent = hopsOrDepth !== undefined ? hopsOrDepth : 0;
+        kpiDepthSub.textContent = item.kpi_depth_sub || (item.result_data ? `Hops: ${item.result_data.hops}` : `Max hop ${item.max_depth_reached || 0}`);
+
+        kpiLinksCount.textContent = (item.total_links_accumulated || 0).toLocaleString();
+        kpiLinksSub.textContent = item.kpi_links_sub || "Recorded search";
+        kpiElapsedTime.textContent = item.elapsed || "0.0s";
+        kpiStatusBadge.textContent = item.status_badge_text || (item.status === "found" ? "Path Found!" : item.status);
+
+        // Restore progress bar
+        progressBar.style.width = "100%";
+        progressBar.classList.remove("progress-bar-animated");
+        if (item.status === "found") {
+            progressBar.className = "progress-bar bg-success";
+        } else if (item.status === "not_found") {
+            progressBar.className = "progress-bar bg-warning";
+        } else if (item.status === "cancelled") {
+            progressBar.className = "progress-bar bg-secondary";
+        } else {
+            progressBar.className = "progress-bar bg-danger";
+        }
+
+        // Restore visited pages table & inspector
+        visitedPagesList = item.visited_pages ? [...item.visited_pages] : [];
+        totalLinksAccumulated = item.total_links_accumulated || 0;
+        visitedTableBody.innerHTML = "";
+
+        if (visitedPagesList.length > 0) {
+            intermediateSection.classList.remove("d-none");
+            intermediateCountBadge.textContent = visitedPagesList.length;
+            visitedPagesList.forEach(p => appendVisitedTableRow(p));
+
+            liveInspectorCard.classList.remove("d-none");
+            const lastPage = visitedPagesList[visitedPagesList.length - 1];
+            if (liveDirectionBadge) {
+                if (lastPage.direction === "backward") {
+                    liveDirectionBadge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-left-circle me-1"></i> Backward from Target`;
+                } else {
+                    liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+                }
+            }
+            liveHopBadge.textContent = `Hop ${lastPage.depth}`;
+            livePageTitle.textContent = lastPage.title;
+            livePageLink.href = lastPage.url;
+            livePageSnippet.textContent = lastPage.snippet || "Playwright inspected page.";
+            if (lastPage.screenshot) {
+                liveScreenshotImg.src = lastPage.screenshot;
+                liveScreenshotImg.classList.remove("d-none");
+                noScreenshotPlaceholder.classList.add("d-none");
+                liveScreenshotImg.onclick = () => openScreenshotModal(lastPage.title, lastPage.screenshot);
+            } else {
+                liveScreenshotImg.classList.add("d-none");
+                noScreenshotPlaceholder.classList.remove("d-none");
+            }
+            renderLiveTrail(lastPage.path_so_far);
+        } else {
+            intermediateSection.classList.add("d-none");
+            liveInspectorCard.classList.add("d-none");
+        }
+
+        // Restore result card or alert card
+        if (item.status === "found" && item.result_data) {
+            alertCard.classList.add("d-none");
+            currentFoundPath = item.result_data.path || [];
+            currentLinkContext = item.result_data.link_context || null;
+            showResultCard(item.result_data);
+            resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } else {
+            resultCard.classList.add("d-none");
+            if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
+            if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
+            contextCard.classList.add("d-none");
+            showAlert(item.message || (item.status === "cancelled" ? "Search stopped by user." : item.status === "not_found" ? "Reached maximum search limit without finding target link." : "An error occurred during crawling."));
+            alertCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
+        // Close the offcanvas
+        try {
+            const offcanvasInstance = bootstrap.Offcanvas.getInstance(historyOffcanvasEl);
+            if (offcanvasInstance) {
+                offcanvasInstance.hide();
+            }
+        } catch (e) {
+            console.error("Offcanvas hide error:", e);
+        }
+    }
+
+    if (clearHistoryBtn) {
+        clearHistoryBtn.addEventListener("click", () => {
+            if (confirm("Clear all recent search history?")) {
+                searchHistory = [];
+                activeHistoryId = null;
+                localStorage.removeItem(STORAGE_KEY_HISTORY);
+                renderHistoryList();
+            }
+        });
+    }
+
+    loadSearchHistory();
 
     // --- Theme Handling ---
     function initTheme() {
@@ -425,6 +768,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!start || !target) return;
 
+        currentCrawlParams = {
+            start: start,
+            target: target,
+            algorithm: appSettings.algorithm,
+            maxPages: appSettings.maxPages,
+            maxDepth: appSettings.maxDepth,
+            contextWords: appSettings.contextWords,
+        };
+
         resetUI();
 
         const payload = {
@@ -462,7 +814,7 @@ document.addEventListener("DOMContentLoaded", () => {
             setRunningState(true);
             startTimer();
             const maxPages = data.max_pages || appSettings.maxPages;
-            kpiPagesSub.textContent = "0 forward • 0 backward";
+            kpiPagesSub.textContent = "0 forward \u2022 0 backward";
             const backlinksCount = data.target_backlinks_count || 0;
             kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
             statsSection.classList.remove("d-none");
@@ -488,7 +840,7 @@ document.addEventListener("DOMContentLoaded", () => {
             kpiPagesVisited.textContent = totalVisited;
             const fCount = data.forward_visited_count !== undefined ? data.forward_visited_count : (page.direction === "forward" ? 1 : 0);
             const bCount = data.backward_visited_count !== undefined ? data.backward_visited_count : (page.direction === "backward" ? 1 : 0);
-            kpiPagesSub.textContent = `${fCount} forward • ${bCount} backward`;
+            kpiPagesSub.textContent = `${fCount} forward \u2022 ${bCount} backward`;
             kpiCurrentDepth.textContent = page.depth;
             kpiDepthSub.textContent = `Hop level ${page.depth}`;
             kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
@@ -533,12 +885,13 @@ document.addEventListener("DOMContentLoaded", () => {
             kpiStatusBadge.textContent = "Path Found!";
 
             if (data.forward_visited_count !== undefined && data.backward_visited_count !== undefined) {
-                kpiPagesSub.textContent = `${data.forward_visited_count} forward • ${data.backward_visited_count} backward`;
+                kpiPagesSub.textContent = `${data.forward_visited_count} forward \u2022 ${data.backward_visited_count} backward`;
             }
 
             currentFoundPath = data.path;
             currentLinkContext = data.link_context;
             showResultCard(data);
+            saveCurrentSearchToHistory("found", data);
 
         } else if (eventType === "not_found") {
             stopTimer();
@@ -547,6 +900,7 @@ document.addEventListener("DOMContentLoaded", () => {
             progressBar.classList.add("bg-warning");
             kpiStatusBadge.textContent = "Limit reached";
             showAlert(data.message || "Reached maximum search limit without finding target link.");
+            saveCurrentSearchToHistory("not_found", data);
 
         } else if (eventType === "cancelled") {
             stopTimer();
@@ -555,6 +909,7 @@ document.addEventListener("DOMContentLoaded", () => {
             progressBar.classList.add("bg-secondary");
             kpiStatusBadge.textContent = "Crawl stopped";
             showAlert(data.message || "Search stopped by user.");
+            saveCurrentSearchToHistory("cancelled", data);
 
         } else if (eventType === "error") {
             stopTimer();
@@ -563,6 +918,7 @@ document.addEventListener("DOMContentLoaded", () => {
             progressBar.classList.add("bg-danger");
             kpiStatusBadge.textContent = "Error";
             showAlert(data.message || "An error occurred during crawling.");
+            saveCurrentSearchToHistory("error", data);
         }
     }
 

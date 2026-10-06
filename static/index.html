@@ -29,6 +29,13 @@
                 <span class="badge rounded-pill text-bg-primary px-3 py-2 d-none d-md-inline-flex align-items-center gap-1">
                     <i class="bi bi-play-circle-fill"></i> Powered by Playwright
                 </span>
+                <!-- Recent Searches Offcanvas Button -->
+                <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 rounded-pill px-3 position-relative" 
+                        data-bs-toggle="offcanvas" data-bs-target="#historyOffcanvas" aria-controls="historyOffcanvas" id="openHistoryBtn" title="View Last 10 Searches">
+                    <i class="bi bi-clock-history"></i>
+                    <span>History</span>
+                    <span class="badge rounded-pill bg-primary ms-1 d-none" id="historyCountBadge">0</span>
+                </button>
                 <!-- Settings Button -->
                 <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 rounded-pill px-3" 
                         data-bs-toggle="modal" data-bs-target="#settingsModal" title="Open Crawler & Context Settings">
@@ -613,6 +620,37 @@
         </p>
         <div class="p-3 rounded-3 bg-body-tertiary border text-secondary small">
             To start again, run: <code class="fw-bold text-primary">python run.py</code>
+        </div>
+    </div>
+
+    <!-- Recent Searches Offcanvas (Right Side) -->
+    <div class="offcanvas offcanvas-end shadow-lg" tabindex="-1" id="historyOffcanvas" aria-labelledby="historyOffcanvasLabel" style="width: 420px; max-width: 90vw;">
+        <div class="offcanvas-header border-bottom py-3">
+            <div class="d-flex align-items-center gap-2">
+                <div class="brand-icon" style="width: 32px; height: 32px; font-size: 1rem;">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div>
+                    <h5 class="offcanvas-title fw-bold mb-0" id="historyOffcanvasLabel">Recent Searches</h5>
+                    <small class="text-secondary">Last 10 search runs saved</small>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-sm btn-outline-danger" id="clearHistoryBtn" title="Clear search history">
+                    <i class="bi bi-trash3"></i>
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+        </div>
+        <div class="offcanvas-body p-3">
+            <div id="historyEmptyPlaceholder" class="text-center py-5 text-muted">
+                <i class="bi bi-hourglass-split fs-1 mb-2 d-block"></i>
+                <p class="mb-1 fw-semibold">No searches saved yet</p>
+                <small class="text-secondary">Run a crawl to automatically save and review complete search records here.</small>
+            </div>
+            <div id="historyList" class="d-flex flex-column gap-2">
+                <!-- Search history items injected dynamically -->
+            </div>
         </div>
     </div>
 

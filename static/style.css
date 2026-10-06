@@ -317,4 +317,35 @@ body {
     display: inline-block;
 }
 
+/* History Offcanvas & Item Styles */
+.history-item {
+    transition: all 0.2s ease;
+    border-left: 3px solid transparent;
+}
 
+.history-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+    border-color: #3b82f6 !important;
+}
+
+.history-item.status-found {
+    border-left-color: #10b981;
+}
+
+.history-item.status-not_found {
+    border-left-color: #f59e0b;
+}
+
+.history-item.status-cancelled {
+    border-left-color: #6b7280;
+}
+
+.history-item.status-error {
+    border-left-color: #ef4444;
+}
+
+.history-item.active-history {
+    background: rgba(59, 130, 246, 0.08) !important;
+    border-left-color: #3b82f6 !important;
+}
