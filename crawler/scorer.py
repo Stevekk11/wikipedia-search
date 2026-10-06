@@ -116,7 +116,7 @@ def compute_relevance_score(
         score += 45.0
         reasons.append("High-centrality global connector hub spanning multiple domains (+45 pts)")
         if primary_badge == "Candidate Neighbor":
-            primary_badge = "🌐 Global Connector Hub"
+            primary_badge = "Global Connector Hub"
             badge_class = "bg-info text-dark"
 
     # 7. Penalize dead-end narrow topics (highways, elementary schools, etc.)

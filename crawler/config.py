@@ -30,7 +30,7 @@ HIGH_CENTRALITY_HUBS: Set[str] = {
     "world", "earth", "country", "city", "history", "geography", "government",
     "economy", "culture", "society", "human", "biology", "science", "technology",
     "medicine", "law", "philosophy", "psychology", "politics", "education",
-    "demographics_of_the_united_states", "human_sexuality", "culture_of_the_united_states"
+    "demographics_of_the_united_states", "human_sexuality", "culture_of_the_united_states", "south_america"
 }
 
 # Narrow, dead-end patterns to penalize

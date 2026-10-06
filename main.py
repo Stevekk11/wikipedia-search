@@ -62,6 +62,15 @@ async def get_index():
     return JSONResponse({"status": "Wikipedia Hop Counter API is running"})
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve the favicon for standard browser icon requests."""
+    favicon_path = os.path.join(STATIC_DIR, "favicon.svg")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path, media_type="image/svg+xml")
+    return JSONResponse({"status": "Favicon not found"}, status_code=404)
+
+
 @app.get("/api/autocomplete")
 async def autocomplete(q: str = Query(..., min_length=1)):
     """
