@@ -174,6 +174,17 @@ class WikipediaCrawler:
         if start_info.get("extract"):
             start_keywords.update(re.findall(r"\w+", start_info["extract"].lower()))
 
+        # Unfiltered context (categories + lead text + title) used to exempt dead-end
+        # patterns that are actually relevant to the endpoint (e.g. "championship" for a skier)
+        target_context: Set[str] = set(re.findall(r"\w+", " ".join(target_keywords).lower())) | set(
+            re.findall(r"\w+", target_info["title"].lower())
+        )
+        start_context: Set[str] = set(re.findall(r"\w+", " ".join(start_keywords).lower())) | set(
+            re.findall(r"\w+", start_info["title"].lower())
+        )
+        target_summary: str = target_info.get("extract") or target_info["title"]
+        start_summary: str = start_info.get("extract") or start_info["title"]
+
         target_keywords = {w for w in target_keywords if len(w) > 3}
         start_keywords = {w for w in start_keywords if len(w) > 3}
 
@@ -224,9 +235,16 @@ class WikipediaCrawler:
 
             try:
                 while (forward_queue or backward_queue) and visited_count < self.max_pages and not self.cancel_requested:
-                    # Select direction for this iteration: alternate between forward and backward
+                    # Cardinality balancing: always expand the frontier with the smaller queue,
+                    # so a small/starved side (e.g. obscure target with few incoming links)
+                    # is exhausted immediately instead of waiting for alternating turns.
                     if forward_queue and backward_queue:
-                        turn_direction = "forward" if (visited_count % 2 == 0) else "backward"
+                        if len(forward_queue) < len(backward_queue):
+                            turn_direction = "forward"
+                        elif len(backward_queue) < len(forward_queue):
+                            turn_direction = "backward"
+                        else:
+                            turn_direction = "forward" if (visited_count % 2 == 0) else "backward"
                     elif forward_queue:
                         turn_direction = "forward"
                     else:
@@ -446,6 +464,8 @@ class WikipediaCrawler:
                                     target_backlinks,
                                     depth=depth + 1,
                                     algorithm=self.algorithm,
+                                    target_context=target_context,
+                                    target_summary=target_summary,
                                 )
                                 badges_list = [{"text": badge, "class": badge_class}]
                                 step_data = {
@@ -754,6 +774,8 @@ class WikipediaCrawler:
                                     target_backlinks=set(),
                                     depth=depth + 1,
                                     algorithm=self.algorithm,
+                                    target_context=start_context,
+                                    target_summary=start_summary,
                                 )
 
                                 badges_list = [

@@ -5,9 +5,20 @@ and penalizes narrow dead-end topics.
 """
 
 import re
-from typing import List, Set, Tuple
+from typing import Iterable, List, Optional, Set, Tuple
 
-from .config import DEAD_END_PATTERNS, HIGH_CENTRALITY_HUBS, INDEX_PREFIXES
+from .config import (
+    DEAD_END_PATTERNS,
+    HIGH_CENTRALITY_HUBS,
+    HUB_BOOST_MAX_DEPTH,
+    HUB_EARLY_BONUS,
+    HUB_LATE_PENALTY,
+    INDEX_PREFIXES,
+)
+from .semantic import cosine_similarity, stem, stem_tokens
+
+# Below this cosine similarity a candidate is considered semantically unrelated
+LOW_SIMILARITY = 0.25
 
 
 def compute_relevance_score(
@@ -19,6 +30,8 @@ def compute_relevance_score(
     target_backlinks: Set[str],
     depth: int = 0,
     algorithm: str = "heuristic",
+    target_context: Optional[Iterable[str]] = None,
+    target_summary: str = "",
 ) -> Tuple[float, bool, List[str], str, str, str]:
     """
     Advanced heuristic score for a candidate link.
@@ -88,40 +101,69 @@ def compute_relevance_score(
         primary_badge = "Partial Title Match"
         badge_class = "bg-primary text-white"
 
-    # 4. Token overlap with target title and slug
-    target_tokens = set(re.findall(r"\w+", target_lower + " " + target_s_lower.replace("_", " ")))
-    link_tokens = set(re.findall(r"\w+", link_lower + " " + slug_lower.replace("_", " ")))
+    # 4. Stemmed token overlap with target title and slug ("Polish"/"Poles"/"Poland" unify)
+    target_tokens = stem_tokens(target_lower + " " + target_s_lower.replace("_", " "))
+    link_tokens = stem_tokens(link_lower + " " + slug_lower.replace("_", " "))
     overlap = target_tokens.intersection(link_tokens)
+
+    # Embedding similarity between candidate and target (None if model unavailable)
+    similarity = cosine_similarity(link_title, target_summary or target_title) if target_summary or target_title else None
+
     if overlap:
-        score += len(overlap) * 120.0
-        reasons.append(f"Token overlap with target: {', '.join(overlap)} (+{len(overlap)*120} pts)")
+        overlap_pts = len(overlap) * 120.0
+        # Lexical match with no semantic support (e.g. Quantum mechanics -> Quantum-Systems drone company)
+        if similarity is not None and similarity < LOW_SIMILARITY:
+            overlap_pts *= 0.4
+            reasons.append(f"Token overlap discounted: low semantic similarity ({similarity:.2f})")
+        score += overlap_pts
+        reasons.append(f"Stemmed token overlap with target: {', '.join(sorted(overlap))} (+{overlap_pts:.0f} pts)")
         if not primary_badge or primary_badge == "Candidate Neighbor":
-            primary_badge = f"Keywords ({', '.join(list(overlap)[:2])})"
+            primary_badge = f"Keywords ({', '.join(sorted(overlap)[:2])})"
             badge_class = "bg-primary text-white"
 
-    # 5. Overlap with target categories & summary keywords
-    keyword_overlap = target_keywords.intersection(link_tokens)
+    if similarity is not None and similarity > LOW_SIMILARITY:
+        sim_pts = (similarity - LOW_SIMILARITY) * 400.0
+        score += sim_pts
+        reasons.append(f"Embedding similarity to target {similarity:.2f} (+{sim_pts:.0f} pts)")
+        if primary_badge == "Candidate Neighbor":
+            primary_badge = "Semantic Match"
+            badge_class = "bg-secondary text-white"
+
+    # 5. Overlap with target categories & summary keywords (stemmed)
+    stemmed_keywords = {stem(k) for k in target_keywords}
+    keyword_overlap = stemmed_keywords.intersection(link_tokens)
     if keyword_overlap:
         score += len(keyword_overlap) * 16.0
         reasons.append(
-            f"Semantic category/context overlap: {', '.join(list(keyword_overlap)[:3])} (+{len(keyword_overlap)*16} pts)"
+            f"Semantic category/context overlap: {', '.join(sorted(keyword_overlap)[:3])} (+{len(keyword_overlap)*16} pts)"
         )
         if primary_badge == "Candidate Neighbor":
             primary_badge = "Semantic Match"
             badge_class = "bg-secondary text-white"
 
-    # 6. High-Centrality Hubs
-    is_hub = slug_lower in HIGH_CENTRALITY_HUBS or any(slug_lower == h for h in HIGH_CENTRALITY_HUBS)
+    # 6. High-Centrality Hubs (inverted weighting: boost early to escape niche
+    #    territory, penalize later so the search zooms in on granular topics)
+    is_hub = slug_lower in HIGH_CENTRALITY_HUBS
     if is_hub:
-        score += 45.0
-        reasons.append("High-centrality global connector hub spanning multiple domains (+45 pts)")
-        if primary_badge == "Candidate Neighbor":
-            primary_badge = "Global Connector Hub"
-            badge_class = "bg-info text-dark"
+        if depth <= HUB_BOOST_MAX_DEPTH:
+            score += HUB_EARLY_BONUS
+            reasons.append(f"Broad connector hub at early hop {depth}: escapes niche territory (+{HUB_EARLY_BONUS:.0f} pts)")
+            if primary_badge == "Candidate Neighbor":
+                primary_badge = "Global Connector Hub"
+                badge_class = "bg-info text-dark"
+        else:
+            score -= HUB_LATE_PENALTY
+            reasons.append(f"Broad hub at late hop {depth}: scatters search, zoom in instead (-{HUB_LATE_PENALTY:.0f} pts)")
 
     # 7. Penalize dead-end narrow topics (highways, elementary schools, etc.)
+    #    unless the pattern is relevant to the target's own categories / lead text.
+    context = {stem(t) for t in target_context} if target_context else set()
     for pattern in DEAD_END_PATTERNS:
         if pattern in link_lower or pattern in slug_lower:
+            pattern_stems = {stem(t) for t in re.findall(r"[a-z]+", pattern)}
+            if pattern_stems & context:
+                reasons.append(f"Dead-end pattern '{pattern}' not penalized: relevant to target context")
+                continue
             score -= 40.0
             reasons.append(f"Penalized narrow local pattern '{pattern}' (-40 pts)")
             break

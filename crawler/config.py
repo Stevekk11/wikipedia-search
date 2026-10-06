@@ -395,6 +395,11 @@ HIGH_CENTRALITY_HUBS: Set[str] = {
     "demographics_of_the_united_states", "human_sexuality", "culture_of_the_united_states", "south_america"
 }
 
+# Inverted hub weighting: boost hubs on early hops, penalize them on later hops
+HUB_BOOST_MAX_DEPTH: int = 2
+HUB_EARLY_BONUS: float = 60.0
+HUB_LATE_PENALTY: float = 50.0
+
 # Narrow, dead-end patterns to penalize
 DEAD_END_PATTERNS: List[str] = [
     "road", "highway", "state_road", "interstate", "route", "airport",
