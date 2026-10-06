@@ -70,9 +70,11 @@ async def extract_outgoing_links(page: Any) -> List[Dict[str, str]]:
                     }
                     const rawHref = a.getAttribute('href') || '';
                     let slug = '';
-                    if (rawHref.startsWith('/wiki/')) slug = rawHref.substring(6);
-                    else if (rawHref.startsWith('https://en.wikipedia.org/wiki/')) slug = rawHref.substring(30);
-                    else continue;
+                    if (rawHref.startsWith('/wiki/')) {
+                        slug = rawHref.substring(6);
+                    } else if (rawHref.includes('.wikipedia.org/wiki/')) {
+                        slug = rawHref.split('.wikipedia.org/wiki/')[1] || '';
+                    } else continue;
 
                     slug = slug.split('#')[0].split('?')[0];
                     if (!slug || slug === 'Main_Page') continue;
@@ -153,16 +155,17 @@ async def extract_outgoing_links(page: Any) -> List[Dict[str, str]]:
         return []
 
 
-async def get_page_backlinks(page: Any, slug: str, limit: int = 150) -> List[Dict[str, str]]:
+async def get_page_backlinks(page: Any, slug: str, limit: int = 150, lang: str = "en") -> List[Dict[str, str]]:
     """
     Fetch incoming backlinks to a Wikipedia article.
     First tries Wikipedia Action API; falls back to Playwright Special:WhatLinksHere.
     """
+    lang = (lang or "en").strip().lower()
     clean_slug = slug.strip().replace(" ", "_")
     encoded = urllib.parse.quote(clean_slug.replace("_", " "))
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     api_url = (
-        f"https://en.wikipedia.org/w/api.php?action=query&list=backlinks"
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&list=backlinks"
         f"&bltitle={encoded}&bllimit={limit}&blnamespace=0&format=json"
     )
 
@@ -181,11 +184,11 @@ async def get_page_backlinks(page: Any, slug: str, limit: int = 150) -> List[Dic
                     if not any(b["title"].startswith(p) for p in DISALLOWED_PREFIXES)
                 ]
     except Exception as e:
-        logger.debug(f"Action API backlinks failed for {clean_slug}: {e}")
+        logger.debug(f"Action API backlinks failed for {clean_slug} ({lang}): {e}")
 
     # Fallback to Playwright Special:WhatLinksHere
     try:
-        what_url = f"https://en.wikipedia.org/wiki/Special:WhatLinksHere/{clean_slug}?limit={limit}&namespace=0"
+        what_url = f"https://{lang}.wikipedia.org/wiki/Special:WhatLinksHere/{clean_slug}?limit={limit}&namespace=0"
         await page.goto(what_url, wait_until="domcontentloaded", timeout=12000)
         items = await page.evaluate(
             """(disallowed) => {
@@ -197,8 +200,11 @@ async def get_page_backlinks(page: Any, slug: str, limit: int = 150) -> List[Dic
                 for (const a of lis) {
                     const rawHref = a.getAttribute('href') || '';
                     let s = '';
-                    if (rawHref.startsWith('/wiki/')) s = rawHref.substring(6);
-                    else if (rawHref.startsWith('https://en.wikipedia.org/wiki/')) s = rawHref.substring(30);
+                    if (rawHref.startsWith('/wiki/')) {
+                        s = rawHref.substring(6);
+                    } else if (rawHref.includes('.wikipedia.org/wiki/')) {
+                        s = rawHref.split('.wikipedia.org/wiki/')[1] || '';
+                    } else continue;
                     s = s.split('#')[0].split('?')[0];
                     if (!s || s === 'Main_Page') continue;
                     try { s = decodeURIComponent(s); } catch(e) {}
@@ -216,7 +222,7 @@ async def get_page_backlinks(page: Any, slug: str, limit: int = 150) -> List[Dic
         )
         return items
     except Exception as e:
-        logger.warning(f"Playwright WhatLinksHere failed for {clean_slug}: {e}")
+        logger.warning(f"Playwright WhatLinksHere failed for {clean_slug} ({lang}): {e}")
         return []
 
 
@@ -227,16 +233,18 @@ async def extract_target_link_context(
     target_title: str,
     words_count: int = 150,
     source_title: Optional[str] = None,
+    lang: str = "en",
 ) -> Dict:
     """
     Extract up to words_count before and after the target link on source_slug,
     along with section header.
     """
+    lang = (lang or "en").strip().lower()
     clean_source_title = source_title or source_slug.replace("_", " ")
     try:
         cur_url = page.url or ""
         if f"/wiki/{source_slug}" not in cur_url:
-            await page.goto(f"https://en.wikipedia.org/wiki/{source_slug}", wait_until="domcontentloaded", timeout=12000)
+            await page.goto(f"https://{lang}.wikipedia.org/wiki/{source_slug}", wait_until="domcontentloaded", timeout=12000)
 
         extracted_context = await page.evaluate(
             """args => {
@@ -262,7 +270,6 @@ async def extract_target_link_context(
 
                 if (!targetAnchor) return null;
 
-                // Find section subtitle
                 let sectionTitle = 'Lead / Introduction';
                 let cur = targetAnchor;
                 while (cur && cur !== body && cur !== document.documentElement) {
@@ -334,10 +341,10 @@ async def extract_target_link_context(
             return {
                 "source_title": clean_source_title,
                 "source_slug": source_slug,
-                "source_url": f"https://en.wikipedia.org/wiki/{source_slug}",
+                "source_url": f"https://{lang}.wikipedia.org/wiki/{source_slug}",
                 "target_title": target_title,
                 "target_slug": target_slug,
-                "target_url": f"https://en.wikipedia.org/wiki/{target_slug}",
+                "target_url": f"https://{lang}.wikipedia.org/wiki/{target_slug}",
                 "section": extracted_context.get("section", "Lead / Introduction"),
                 "words_before": extracted_context.get("wordsBefore", ""),
                 "anchor_text": extracted_context.get("anchorText", target_title),
@@ -352,10 +359,10 @@ async def extract_target_link_context(
     return {
         "source_title": clean_source_title,
         "source_slug": source_slug,
-        "source_url": f"https://en.wikipedia.org/wiki/{source_slug}",
+        "source_url": f"https://{lang}.wikipedia.org/wiki/{source_slug}",
         "target_title": target_title,
         "target_slug": target_slug,
-        "target_url": f"https://en.wikipedia.org/wiki/{target_slug}",
+        "target_url": f"https://{lang}.wikipedia.org/wiki/{target_slug}",
         "section": "Lead / Introduction",
         "words_before": "",
         "anchor_text": target_title,
@@ -366,13 +373,14 @@ async def extract_target_link_context(
     }
 
 
-async def enrich_final_steps_context(page: Any, final_steps: List[Dict]):
+async def enrich_final_steps_context(page: Any, final_steps: List[Dict], lang: str = "en"):
     """
     Post-crawl resolution: For any step in the winning path where in-page
     context is missing (such as reverse backlink feeders), navigate to the source page
     and extract the real section subtitle, in-page anchor text, and 15 words before/after.
     Since this runs only once for the winning path (1-3 steps), it has zero impact on search speed.
     """
+    lang = (lang or "en").strip().lower()
     for step in final_steps:
         if not step.get("words_before") and not step.get("words_after"):
             from_slug = step.get("from_slug")
@@ -382,7 +390,7 @@ async def enrich_final_steps_context(page: Any, final_steps: List[Dict]):
             if from_slug and to_slug:
                 try:
                     c = await extract_target_link_context(
-                        page, from_slug, to_slug, to_title or to_slug, words_count=15, source_title=from_title
+                        page, from_slug, to_slug, to_title or to_slug, words_count=15, source_title=from_title, lang=lang
                     )
                     if c:
                         if c.get("words_before") or c.get("words_after"):

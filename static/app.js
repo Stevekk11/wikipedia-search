@@ -947,7 +947,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderAssessmentBadgeHtml(assessment) {
         if (!assessment || !assessment.class || assessment.class === "Unassessed") {
             return `
-                <span class="badge assessment-badge badge-unassessed" title="Assessment: Unassessed or pending evaluation">
+                <span class="badge rounded-pill assessment-badge badge-unassessed" title="Assessment: Unassessed or pending evaluation">
                     <i class="bi bi-question-circle-fill me-1"></i>Unassessed
                 </span>
             `;
@@ -957,7 +957,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const cls = assessment.class || "Unassessed";
         const fullName = assessment.class_name || `${cls} Class`;
         return `
-            <span class="badge assessment-badge ${badgeClass}" title="Quality Assessment: ${escapeHtml(fullName)}">
+            <span class="badge rounded-pill assessment-badge ${badgeClass}" title="Quality Assessment: ${escapeHtml(fullName)}">
                 <i class="bi ${icon} me-1"></i>${escapeHtml(cls)}
             </span>
         `;
@@ -1034,36 +1034,25 @@ document.addEventListener("DOMContentLoaded", () => {
             and connected <strong>${escapeHtml(startTitle)}</strong> to <strong>${escapeHtml(targetTitle)}</strong> in exactly <strong>${hops}</strong> link hop${hops === 1 ? "" : "s"}.
         `;
 
-        // Render Visual Hop Chain with Assessment Score & WikiProjects
+        // Render Visual Hop Chain
         hopChainWrapper.innerHTML = "";
         data.path.forEach((title, index) => {
             const isStart = index === 0;
             const isTarget = index === data.path.length - 1;
             const url = data.urls ? data.urls[index] : `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
-            const assessment = getAssessmentData(title, data.assessments);
 
             const node = document.createElement("div");
             node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
             
-            const icon = isStart ? '<i class="bi bi-geo-alt-fill text-success"></i>' : isTarget ? '<i class="bi bi-flag-fill text-danger"></i>' : '<i class="bi bi-link-45deg text-primary"></i>';
-            const label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : `Hop ${index}`;
-
-            const assessmentBadge = renderAssessmentBadgeHtml(assessment);
-            const wikiProjectBadge = renderWikiProjectHtml(assessment);
+            let icon = isStart ? '<i class="bi bi-geo-alt-fill"></i>' : isTarget ? '<i class="bi bi-flag-fill"></i>' : '<i class="bi bi-link-45deg"></i>';
+            let label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : `Hop ${index}`;
 
             node.innerHTML = `
-                <div class="d-flex align-items-center justify-content-between w-100 gap-2 mb-1">
-                    <span class="d-flex align-items-center gap-1" style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; opacity: 0.85;">
-                        ${icon} ${label}
-                    </span>
-                    ${assessmentBadge}
+                ${icon}
+                <div class="d-flex flex-column text-start">
+                    <span style="font-size: 0.72rem; text-transform: uppercase; opacity: 0.85;">${label}</span>
+                    <a href="${url}" target="_blank" class="text-reset text-decoration-none fw-bold">${escapeHtml(title)}</a>
                 </div>
-                <div class="w-100 mb-1">
-                    <a href="${url}" target="_blank" class="text-reset text-decoration-none fw-bold d-block text-truncate" title="${escapeHtml(title)}" style="font-size: 0.95rem;">
-                        ${escapeHtml(title)}
-                    </a>
-                </div>
-                ${wikiProjectBadge}
             `;
             hopChainWrapper.appendChild(node);
 
@@ -1240,42 +1229,76 @@ document.addEventListener("DOMContentLoaded", () => {
                 badgesHtml = step.badges.map(b => {
                     const text = typeof b === "string" ? b : b.text || "";
                     const bClass = (typeof b === "object" && b.class) ? b.class : "bg-secondary text-white";
-                    return `<span class="badge ${bClass}">${escapeHtml(text)}</span>`;
+                    return `<span class="badge fs-6 px-2.5 py-1 ${bClass}">${escapeHtml(text)}</span>`;
                 }).join(" ");
             } else {
-                badgesHtml = `<span class="badge ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>`;
+                badgesHtml = `<span class="badge fs-6 px-2.5 py-1 ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>`;
+            }
+
+            // Article Quality Assessment Scores & WikiProjects
+            const fromAssessment = getAssessmentData(step.from_title, assessments);
+            const toAssessment = getAssessmentData(step.to_title, assessments);
+
+            const fromBadge = fromAssessment ? renderAssessmentBadgeHtml(fromAssessment) : "";
+            const toBadge = toAssessment ? renderAssessmentBadgeHtml(toAssessment) : "";
+
+            const fromWikiProject = fromAssessment ? renderWikiProjectHtml(fromAssessment) : "";
+            const toWikiProject = toAssessment ? renderWikiProjectHtml(toAssessment) : "";
+
+            let assessmentBoxHtml = "";
+            if (fromAssessment || toAssessment) {
+                assessmentBoxHtml = `
+                    <div class="p-3 rounded-3 bg-body-tertiary border mb-3">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-6 d-flex flex-column gap-1.5">
+                                <div class="d-flex align-items-center flex-wrap gap-2">
+                                    <span class="text-secondary fw-semibold">
+                                        <i class="bi bi-file-earmark-text text-primary me-1"></i>${escapeHtml(step.from_title)}:
+                                    </span>
+                                    ${fromBadge}
+                                </div>
+                                ${fromWikiProject}
+                            </div>
+                            <div class="col-md-6 d-flex flex-column gap-1.5">
+                                <div class="d-flex align-items-center flex-wrap gap-2">
+                                    <span class="text-secondary fw-semibold">
+                                        <i class="bi bi-link-45deg text-success me-1"></i>${escapeHtml(step.to_title)}:
+                                    </span>
+                                    ${toBadge}
+                                </div>
+                                ${toWikiProject}
+                            </div>
+                        </div>
+                    </div>
+                `;
             }
 
             card.innerHTML = `
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 pb-2 mb-2 border-bottom">
-                    <div class="d-flex align-items-center flex-wrap gap-2">
-                        <span class="badge bg-primary px-2.5 py-1 rounded-pill fw-bold">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pb-3 mb-3 border-bottom">
+                    <div class="d-flex align-items-center flex-wrap gap-2.5">
+                        <span class="badge bg-primary m-2 px-3 py-1.5 rounded-pill fw-bold fs-6">
                             Hop ${step.hop || (idx + 1)}
                         </span>
-                        <div class="d-flex align-items-center flex-wrap gap-2 fs-6">
-                            <div class="d-inline-flex align-items-center gap-1">
-                                <a href="${step.from_url || '#'}" target="_blank" class="text-body-emphasis text-decoration-none fw-semibold">
-                                    ${escapeHtml(step.from_title)}
-                                </a>
-                                ${renderAssessmentBadgeHtml(getAssessmentData(step.from_title, assessments))}
-                            </div>
+                        <div class="d-flex align-items-center flex-wrap gap-2 fs-5">
+                            <a href="${step.from_url || '#'}" target="_blank" class="text-body-emphasis text-decoration-none fw-semibold">
+                                ${escapeHtml(step.from_title)}
+                            </a>
                             <i class="bi bi-arrow-right text-primary mx-1"></i>
-                            <div class="d-inline-flex align-items-center gap-1">
-                                <a href="${step.to_url || '#'}" target="_blank" class="text-primary text-decoration-none fw-bold">
-                                    ${escapeHtml(step.to_title)}
-                                </a>
-                                ${renderAssessmentBadgeHtml(getAssessmentData(step.to_title, assessments))}
-                            </div>
+                            <a href="${step.to_url || '#'}" target="_blank" class="text-primary text-decoration-none fw-bold">
+                                ${escapeHtml(step.to_title)}
+                            </a>
                         </div>
                     </div>
                     <div class="d-flex align-items-center flex-wrap gap-2">
                         ${badgesHtml}
-                        <span class="badge ${scoreBadgeClass} font-monospace">Score: ${formattedScore}</span>
+                        <span class="badge ${scoreBadgeClass} font-monospace fs-6 px-3 py-1.5">Score: ${formattedScore}</span>
                     </div>
                 </div>
 
-                <div class="p-2.5 rounded-2 step-explanation-box mb-2">
-                    <div class="small text-body-secondary">
+                ${assessmentBoxHtml}
+
+                <div class="p-3 rounded-3 step-explanation-box mb-3">
+                    <div class="text-body-secondary">
                         <i class="bi bi-cpu-fill text-primary me-1"></i>
                         <strong class="text-body-emphasis">Why this link was chosen:</strong>
                         ${escapeHtml(step.explanation || "Selected based on graph traversal priority.")}

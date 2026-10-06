@@ -49,6 +49,7 @@ class WikipediaCrawler:
         headless: bool = True,
         capture_screenshots: bool = True,
         context_words: int = 150,
+        lang: str = "en",
     ):
         self.start_input = start_input
         self.target_input = target_input
@@ -58,6 +59,7 @@ class WikipediaCrawler:
         self.headless = headless
         self.capture_screenshots = capture_screenshots
         self.context_words = max(20, min(context_words, 500))
+        self.lang = (lang or "en").strip().lower()
         self.cancel_requested = False
 
     def cancel(self):
@@ -83,7 +85,7 @@ class WikipediaCrawler:
         for idx, s in enumerate(final_steps):
             s["hop"] = idx + 1
 
-        await enrich_final_steps_context(page, final_steps)
+        await enrich_final_steps_context(page, final_steps, lang=self.lang)
 
         source_slug = final_path_slugs[-2] if len(final_path_slugs) >= 2 else final_path_slugs[0]
         source_title = final_path_titles[-2] if len(final_path_titles) >= 2 else final_path_titles[0]
@@ -91,17 +93,17 @@ class WikipediaCrawler:
         target_title = final_path_titles[-1]
 
         ctx = await extract_target_link_context(
-            page, source_slug, target_slug, target_title, self.context_words, source_title=source_title
+            page, source_slug, target_slug, target_title, self.context_words, source_title=source_title, lang=self.lang
         )
 
-        assessments = fetch_article_assessments(final_path_titles)
+        assessments = fetch_article_assessments(final_path_titles, lang=self.lang)
 
         return {
             "event": "found",
             "hops": hops,
             "path": final_path_titles,
             "slugs": final_path_slugs,
-            "urls": [f"https://en.wikipedia.org/wiki/{s}" for s in final_path_slugs],
+            "urls": [f"https://{self.lang}.wikipedia.org/wiki/{s}" for s in final_path_slugs],
             "assessments": assessments,
             "total_visited": visited_count,
             "forward_visited_count": len(forward_visited),
@@ -117,8 +119,8 @@ class WikipediaCrawler:
         """Executes simultaneous bidirectional search and yields JSON-serializable events."""
         from playwright.async_api import async_playwright
 
-        start_info = get_wikipedia_info(self.start_input)
-        target_info = get_wikipedia_info(self.target_input)
+        start_info = get_wikipedia_info(self.start_input, lang=self.lang)
+        target_info = get_wikipedia_info(self.target_input, lang=self.lang)
 
         if not start_info["slug"] or not target_info["slug"]:
             yield {
@@ -132,7 +134,7 @@ class WikipediaCrawler:
 
         # Check trivial case: Start == Target
         if start_slug_lower == target_slug_lower:
-            assessments = fetch_article_assessments([start_info["title"]])
+            assessments = fetch_article_assessments([start_info["title"]], lang=self.lang)
             yield {
                 "event": "found",
                 "hops": 0,
@@ -158,9 +160,9 @@ class WikipediaCrawler:
 
         if self.algorithm == "heuristic":
             loop = asyncio.get_running_loop()
-            t_backlinks_fut = loop.run_in_executor(None, fetch_target_backlinks, target_info["slug"], 500)
-            t_cats_fut = loop.run_in_executor(None, fetch_target_categories, target_info["slug"])
-            s_cats_fut = loop.run_in_executor(None, fetch_target_categories, start_info["slug"])
+            t_backlinks_fut = loop.run_in_executor(None, fetch_target_backlinks, target_info["slug"], 500, self.lang)
+            t_cats_fut = loop.run_in_executor(None, fetch_target_categories, target_info["slug"], self.lang)
+            s_cats_fut = loop.run_in_executor(None, fetch_target_categories, start_info["slug"], self.lang)
             target_backlinks, target_categories, start_categories = await asyncio.gather(
                 t_backlinks_fut, t_cats_fut, s_cats_fut
             )
@@ -263,7 +265,7 @@ class WikipediaCrawler:
                             return
 
                         # Navigate to forward article
-                        page_url = f"https://en.wikipedia.org/wiki/{current_slug}"
+                        page_url = f"https://{self.lang}.wikipedia.org/wiki/{current_slug}"
                         visited_count += 1
                         logger.info(f"Forward [{visited_count}/{self.max_pages}] (Depth {depth}): {current_title}")
 
@@ -346,7 +348,7 @@ class WikipediaCrawler:
                                 "from_url": page_url,
                                 "to_title": matched_title,
                                 "to_slug": target_match["slug"],
-                                "to_url": f"https://en.wikipedia.org/wiki/{target_match['slug']}",
+                                "to_url": f"https://{self.lang}.wikipedia.org/wiki/{target_match['slug']}",
                                 "section": target_match.get("section", "Lead / Introduction"),
                                 "anchor_text": target_match.get("anchor_text", matched_title),
                                 "words_before": target_match.get("words_before", ""),
@@ -387,7 +389,7 @@ class WikipediaCrawler:
                                 "from_url": page_url,
                                 "to_title": meeting_title,
                                 "to_slug": meeting_link["slug"],
-                                "to_url": f"https://en.wikipedia.org/wiki/{meeting_link['slug']}",
+                                "to_url": f"https://{self.lang}.wikipedia.org/wiki/{meeting_link['slug']}",
                                 "section": meeting_link.get("section", "Lead / Introduction"),
                                 "anchor_text": meeting_link.get("anchor_text", meeting_title),
                                 "words_before": meeting_link.get("words_before", ""),
@@ -452,7 +454,7 @@ class WikipediaCrawler:
                                     "from_url": page_url,
                                     "to_title": c_title,
                                     "to_slug": c_slug,
-                                    "to_url": f"https://en.wikipedia.org/wiki/{c_slug}",
+                                    "to_url": f"https://{self.lang}.wikipedia.org/wiki/{c_slug}",
                                     "section": link.get("section", "Lead / Introduction"),
                                     "anchor_text": link.get("anchor_text", c_title),
                                     "words_before": link.get("words_before", ""),
@@ -550,7 +552,7 @@ class WikipediaCrawler:
                             return
 
                         # Navigate to backward article
-                        page_url = f"https://en.wikipedia.org/wiki/{current_slug}"
+                        page_url = f"https://{self.lang}.wikipedia.org/wiki/{current_slug}"
                         visited_count += 1
                         logger.info(f"Backward [{visited_count}/{self.max_pages}] (Depth {depth}): {current_title}")
 
@@ -583,7 +585,7 @@ class WikipediaCrawler:
                             return
 
                         # Fetch incoming backlinks to this node (pages that link TO this node)
-                        incoming_backlinks = await get_page_backlinks(page, current_slug, limit=120)
+                        incoming_backlinks = await get_page_backlinks(page, current_slug, limit=120, lang=self.lang)
 
                         backward_visited[slug_key] = {
                             "title": clean_title,
@@ -692,7 +694,7 @@ class WikipediaCrawler:
                             bridge_step = {
                                 "from_title": inc_title,
                                 "from_slug": inc_item["slug"],
-                                "from_url": f"https://en.wikipedia.org/wiki/{inc_item['slug']}",
+                                "from_url": f"https://{self.lang}.wikipedia.org/wiki/{inc_item['slug']}",
                                 "to_title": clean_title,
                                 "to_slug": current_slug,
                                 "to_url": page_url,
@@ -776,7 +778,7 @@ class WikipediaCrawler:
                                 step_data = {
                                     "from_title": p_title,
                                     "from_slug": p_slug,
-                                    "from_url": f"https://en.wikipedia.org/wiki/{p_slug}",
+                                    "from_url": f"https://{self.lang}.wikipedia.org/wiki/{p_slug}",
                                     "to_title": clean_title,
                                     "to_slug": current_slug,
                                     "to_url": page_url,

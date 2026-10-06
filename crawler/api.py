@@ -108,18 +108,19 @@ def normalize_slug_or_title(raw_input: str) -> str:
     return slug
 
 
-def get_wikipedia_info(title_or_slug: str) -> Dict[str, str]:
+def get_wikipedia_info(title_or_slug: str, lang: str = "en") -> Dict[str, str]:
     """
     Query the Wikipedia REST / Action API to resolve redirects,
     get canonical title, slug, summary snippet, and thumbnail.
     """
+    lang = (lang or "en").strip().lower()
     clean = normalize_slug_or_title(title_or_slug)
     encoded = urllib.parse.quote(clean)
 
     headers = {"User-Agent": DEFAULT_REST_USER_AGENT}
 
     # 1. Try REST API summary
-    rest_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
+    rest_url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{encoded}"
     try:
         r = requests.get(rest_url, headers=headers, timeout=5)
         if r.status_code == 200:
@@ -134,17 +135,17 @@ def get_wikipedia_info(title_or_slug: str) -> Dict[str, str]:
             return {
                 "title": canonical_title,
                 "slug": canonical_slug,
-                "url": f"https://en.wikipedia.org/wiki/{canonical_slug}",
+                "url": f"https://{lang}.wikipedia.org/wiki/{canonical_slug}",
                 "description": description,
                 "extract": extract[:250] + ("..." if len(extract) > 250 else ""),
                 "thumbnail": thumbnail,
             }
     except Exception as e:
-        logger.warning(f"Failed to query summary API for {clean}: {e}")
+        logger.warning(f"Failed to query summary API for {clean} ({lang}): {e}")
 
     # 2. Fallback to Action API query
     api_url = (
-        f"https://en.wikipedia.org/w/api.php?action=query&titles={encoded}"
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&titles={encoded}"
         f"&redirects=1&format=json"
     )
     try:
@@ -158,34 +159,35 @@ def get_wikipedia_info(title_or_slug: str) -> Dict[str, str]:
                     return {
                         "title": t,
                         "slug": s,
-                        "url": f"https://en.wikipedia.org/wiki/{s}",
+                        "url": f"https://{lang}.wikipedia.org/wiki/{s}",
                         "description": "",
                         "extract": "",
                         "thumbnail": "",
                     }
     except Exception as e:
-        logger.warning(f"Failed to query action API for {clean}: {e}")
+        logger.warning(f"Failed to query action API for {clean} ({lang}): {e}")
 
     title = clean.replace("_", " ")
     return {
         "title": title,
         "slug": clean,
-        "url": f"https://en.wikipedia.org/wiki/{clean}",
+        "url": f"https://{lang}.wikipedia.org/wiki/{clean}",
         "description": "",
         "extract": "",
         "thumbnail": "",
     }
 
 
-def fetch_target_backlinks(target_slug: str, limit: int = 1000) -> Set[str]:
+def fetch_target_backlinks(target_slug: str, limit: int = 1000, lang: str = "en") -> Set[str]:
     """
     Fetch articles that link directly to the target article (What Links Here).
     Any page linking to these backlinks is guaranteed to be 1 hop away from target!
     """
+    lang = (lang or "en").strip().lower()
     backlinks: Set[str] = set()
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     url = (
-        f"https://en.wikipedia.org/w/api.php?action=query&prop=linkshere"
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=linkshere"
         f"&titles={urllib.parse.quote(target_slug)}&lhlimit=500&lhnamespace=0&format=json"
     )
     try:
@@ -198,18 +200,19 @@ def fetch_target_backlinks(target_slug: str, limit: int = 1000) -> Set[str]:
                     backlinks.add(t.lower())
                     backlinks.add(t.lower().replace(" ", "_"))
     except Exception as e:
-        logger.warning(f"Failed to fetch target backlinks for {target_slug}: {e}")
+        logger.warning(f"Failed to fetch target backlinks for {target_slug} ({lang}): {e}")
     return backlinks
 
 
-def fetch_target_categories(target_slug: str) -> Set[str]:
+def fetch_target_categories(target_slug: str, lang: str = "en") -> Set[str]:
     """
     Fetch Wikipedia categories of the target article to enrich semantic keywords.
     """
+    lang = (lang or "en").strip().lower()
     cat_words: Set[str] = set()
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     url = (
-        f"https://en.wikipedia.org/w/api.php?action=query&prop=categories"
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=categories"
         f"&titles={urllib.parse.quote(target_slug)}&cllimit=50&format=json"
     )
     try:
@@ -229,7 +232,7 @@ def fetch_target_categories(target_slug: str) -> Set[str]:
                 words = re.findall(r"\w+", c_title.lower())
                 cat_words.update(w for w in words if len(w) > 3)
     except Exception as e:
-        logger.warning(f"Failed to fetch categories for {target_slug}: {e}")
+        logger.warning(f"Failed to fetch categories for {target_slug} ({lang}): {e}")
     return cat_words
 
 
@@ -285,7 +288,7 @@ def parse_page_assessment(title: str, raw_assessments: Optional[Dict]) -> Dict:
     }
 
 
-def fetch_article_assessments(titles_or_slugs: List[str]) -> Dict[str, Dict]:
+def fetch_article_assessments(titles_or_slugs: List[str], lang: str = "en") -> Dict[str, Dict]:
     """
     Batch query Wikipedia Action API for article quality assessments and WikiProjects.
     Returns a dictionary mapping titles/slugs to assessment info.
@@ -293,6 +296,7 @@ def fetch_article_assessments(titles_or_slugs: List[str]) -> Dict[str, Dict]:
     if not titles_or_slugs:
         return {}
 
+    lang = (lang or "en").strip().lower()
     clean_titles = []
     seen = set()
     for t in titles_or_slugs:
@@ -307,7 +311,7 @@ def fetch_article_assessments(titles_or_slugs: List[str]) -> Dict[str, Dict]:
     headers = {"User-Agent": DEFAULT_REST_USER_AGENT}
     encoded = "|".join(urllib.parse.quote(t) for t in clean_titles)
     url = (
-        f"https://en.wikipedia.org/w/api.php?action=query&prop=pageassessments"
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=pageassessments"
         f"&palimit=500&redirects=1&format=json&titles={encoded}"
     )
 
@@ -351,7 +355,7 @@ def fetch_article_assessments(titles_or_slugs: List[str]) -> Dict[str, Dict]:
                 results[req.replace(" ", "_")] = fallback
 
     except Exception as e:
-        logger.warning(f"Failed to fetch article assessments for {clean_titles}: {e}")
+        logger.warning(f"Failed to fetch article assessments for {clean_titles} ({lang}): {e}")
         for req in clean_titles:
             fallback = parse_page_assessment(req, {})
             results[req] = fallback

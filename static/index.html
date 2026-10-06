@@ -73,12 +73,12 @@
     </nav>
 
     <!-- Main Content -->
-    <main class="container-xl py-4">
+    <main class="container-xl py-5">
 
         <!-- Header / Intro Banner -->
-        <div class="text-center mb-4">
-            <h1 class="display-6 fw-extrabold text-body-emphasis mb-2">Wikipedia Link Hop Counter</h1>
-            <p class="text-secondary lead mx-auto" style="max-width: 700px; font-size: 1.05rem;">
+        <div class="text-center mb-5">
+            <h1 class="display-5 fw-extrabold text-body-emphasis mb-3">Wikipedia Link Hop Counter</h1>
+            <p class="text-secondary lead mx-auto" style="max-width: 950px; font-size: 1.15rem; line-height: 1.7;">
                 Pick any two Wikipedia articles. Using a live <strong>Playwright</strong> browser, 
                 WikiHop traverses the live web, logs every intermediate page visited, counts the link hops,
                 and reveals the exact <strong>150 words of context before and after</strong> the connecting links.
@@ -86,8 +86,8 @@
         </div>
 
         <!-- Search & Control Card -->
-        <div class="card shadow-sm border-0 mb-4 search-card">
-            <div class="card-body p-4">
+        <div class="card shadow-sm border-0 mb-5 search-card">
+            <div class="card-body p-4 p-md-5">
                 <form id="searchForm" autocomplete="off">
                     <div class="row g-3 align-items-center">
                         
@@ -179,15 +179,15 @@
         </div>
 
         <!-- Live Status / KPI Dashboard (Shown during or after crawl) -->
-        <div id="statsSection" class="d-none mb-4">
+        <div id="statsSection" class="d-none mb-5">
             
             <!-- Progress Bar -->
-            <div class="progress mb-3 progress-glow" style="height: 6px;">
+            <div class="progress mb-4 progress-glow" style="height: 8px;">
                 <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%"></div>
             </div>
 
             <!-- Metric Cards -->
-            <div class="row g-3">
+            <div class="row g-4">
                 
                 <div class="col-6 col-md-3">
                     <div class="card border-0 shadow-sm metric-card p-3 text-center">
@@ -234,20 +234,20 @@
         </div>
 
         <!-- Live Playwright Active Page Monitor -->
-        <div id="liveInspectorCard" class="card border-0 shadow-sm mb-4 d-none">
-            <div class="card-header bg-body border-bottom py-3 d-flex align-items-center justify-content-between">
+        <div id="liveInspectorCard" class="card border-0 shadow-sm mb-5 d-none">
+            <div class="card-header bg-body border-bottom py-3 px-4 d-flex align-items-center justify-content-between">
                 <div class="d-flex align-items-center gap-2">
                     <span class="spinner-grow spinner-grow-sm text-primary" role="status"></span>
-                    <span class="fw-semibold small text-uppercase text-secondary">Playwright Browser Live Inspection</span>
+                    <span class="fw-bold small text-uppercase text-secondary">Playwright Browser Live Inspection</span>
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-primary" id="liveDirectionBadge">
+                    <span class="badge bg-primary fs-6 px-3 py-1.5 rounded-pill" id="liveDirectionBadge">
                         <i class="bi bi-arrow-right-circle me-1"></i> Forward from Start
                     </span>
-                    <span class="badge text-bg-secondary" id="liveHopBadge">Hop 0</span>
+                    <span class="badge text-bg-secondary fs-6 px-3 py-1.5 rounded-pill" id="liveHopBadge">Hop 0</span>
                 </div>
             </div>
-            <div class="card-body p-4">
+            <div class="card-body p-4 p-md-5">
                 <div class="row g-4 align-items-center">
                     
                     <!-- Live Thumbnail Preview -->
@@ -285,91 +285,91 @@
         </div>
 
         <!-- Final Hop Result Card (When Found) -->
-        <div id="resultCard" class="card border-0 shadow-lg mb-4 d-none overflow-hidden">
+        <div id="resultCard" class="card border-0 shadow-lg mb-5 d-none overflow-hidden">
             <div class="card-body p-4 p-md-5">
                 
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
                     <div>
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="badge bg-success-subtle text-success fs-6 px-3 py-1 rounded-pill">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge bg-success-subtle text-success fs-6 px-3 py-1.5 rounded-pill">
                                 <i class="bi bi-check-circle-fill me-1"></i> Path Discovered!
                             </span>
-                            <span class="badge bg-primary fs-6 px-3 py-1 rounded-pill" id="resultHopBadge">
+                            <span class="badge bg-primary fs-6 px-3 py-1.5 rounded-pill" id="resultHopBadge">
                                 0 Hops Required
                             </span>
-                            <span class="badge bg-warning text-dark fs-6 px-3 py-1 rounded-pill d-none" id="resultMeetingBadge">
+                            <span class="badge bg-warning text-dark fs-6 px-3 py-1.5 rounded-pill d-none" id="resultMeetingBadge">
                                 <i class="bi bi-intersect me-1"></i> Frontiers Met in Middle
                             </span>
                         </div>
-                        <h3 class="fw-bold mb-0 text-body-emphasis" id="resultTitle">Start &rarr; Target</h3>
+                        <h2 class="fw-bold mb-0 text-body-emphasis" id="resultTitle">Start &rarr; Target</h2>
                     </div>
                     <div class="d-flex gap-2">
-                        <button class="btn btn-outline-secondary btn-sm" id="copyPathBtn" title="Copy path to clipboard">
+                        <button class="btn btn-outline-secondary px-3 py-2" id="copyPathBtn" title="Copy path to clipboard">
                             <i class="bi bi-clipboard me-1"></i> Copy Path
                         </button>
                     </div>
                 </div>
 
                 <!-- Hop Chain Visualization -->
-                <div class="hop-chain-container py-3">
-                    <div class="d-flex flex-wrap align-items-center gap-2" id="hopChainWrapper">
+                <div class="hop-chain-container py-4 mb-3">
+                    <div class="d-flex flex-wrap align-items-center gap-3" id="hopChainWrapper">
                         <!-- Hop Nodes Injected Dynamically -->
                     </div>
                 </div>
 
-                <div class="alert alert-info d-flex align-items-center mt-3 mb-4" role="alert">
-                    <i class="bi bi-info-circle-fill fs-5 me-2 flex-shrink-0"></i>
-                    <div id="resultSummaryText">Summary details of the search path found.</div>
+                <div class="alert alert-info d-flex align-items-center p-3 mb-5 fs-6" role="alert">
+                    <i class="bi bi-info-circle-fill fs-4 me-3 flex-shrink-0"></i>
+                    <div id="resultSummaryText" class="lh-base">Summary details of the search path found.</div>
                 </div>
 
                 <!-- Intermediate Links Used & Algorithmic Rationale Section -->
-                <div class="card border-0 bg-body-tertiary shadow-sm rounded-4 overflow-hidden mb-4 d-none" id="intermediateStepsCard">
-                    <div class="card-header bg-body border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
-                        <div class="d-flex align-items-center gap-2">
+                <div class="card border-0 bg-body-tertiary shadow-sm rounded-4 overflow-hidden mb-5 d-none" id="intermediateStepsCard">
+                    <div class="card-header bg-body border-bottom py-3.5 px-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="d-flex align-items-center gap-3">
                             <div class="steps-icon-badge">
                                 <i class="bi bi-diagram-3-fill fs-5"></i>
                             </div>
                             <div>
-                                <h5 class="mb-0 fw-bold">Intermediate Links Used &amp; Algorithmic Rationale</h5>
-                                <small class="text-secondary">Step-by-step breakdown of every link traversed, surrounding 15 words before &amp; after, and algorithmic rationale</small>
+                                <h4 class="mb-0 fw-bold">Intermediate Links Used &amp; Algorithmic Rationale</h4>
+                                <div class="text-secondary small">Step-by-step breakdown of every link traversed, surrounding 15 words before &amp; after, and algorithmic rationale</div>
                             </div>
                         </div>
-                        <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle" id="stepsTotalBadge">
+                        <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle fs-6 px-3 py-1.5" id="stepsTotalBadge">
                             0 Intermediate Links
                         </span>
                     </div>
-                    <div class="card-body p-4">
-                        <div class="intermediate-steps-list d-flex flex-column gap-3" id="intermediateStepsList">
+                    <div class="card-body p-4 p-md-5">
+                        <div class="intermediate-steps-list d-flex flex-column gap-4" id="intermediateStepsList">
                             <!-- Populated dynamically -->
                         </div>
                     </div>
                 </div>
 
                 <!-- Final Connecting Link Context Section (150 words before and 150 words after) -->
-                <div class="card border-0 bg-body-tertiary shadow-sm rounded-4 overflow-hidden" id="contextCard">
-                    <div class="card-header bg-body border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
-                        <div class="d-flex align-items-center gap-2">
+                <div class="card border-0 bg-body-tertiary shadow-sm rounded-4 overflow-hidden mb-2" id="contextCard">
+                    <div class="card-header bg-body border-bottom py-3.5 px-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="d-flex align-items-center gap-3">
                             <div class="context-icon-badge">
                                 <i class="bi bi-quote fs-5"></i>
                             </div>
                             <div>
-                                <h5 class="mb-0 fw-bold">Connecting Link Context</h5>
-                                <small class="text-secondary" id="contextSubTitle">Surrounding article text where the final connection was discovered</small>
+                                <h4 class="mb-0 fw-bold">Connecting Link Context</h4>
+                                <div class="text-secondary small" id="contextSubTitle">Surrounding article text where the final connection was discovered</div>
                             </div>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle" id="contextBadgeWords">
+                            <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle fs-6 px-3 py-1.5" id="contextBadgeWords">
                                 150 words before & after
                             </span>
-                            <button class="btn btn-sm btn-outline-secondary" id="copyContextBtn" title="Copy context snippet to clipboard">
+                            <button class="btn btn-sm btn-outline-secondary px-3 py-1.5" id="copyContextBtn" title="Copy context snippet to clipboard">
                                 <i class="bi bi-clipboard me-1"></i> Copy Context
                             </button>
                         </div>
                     </div>
-                    <div class="card-body p-4">
+                    <div class="card-body p-4 p-md-5">
                         
                         <!-- Metadata Pill Bar -->
-                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3 text-secondary small">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-4 text-secondary fs-6">
                             <span>Found in article: <strong class="text-body-emphasis" id="contextSourceTitle">Source Article</strong></span>
                             <span>&bull;</span>
                             <span>Anchor target: <strong class="text-primary" id="contextTargetTitle">Target Link</strong></span>
@@ -380,20 +380,20 @@
                         </div>
 
                         <!-- Context Text Block -->
-                        <div class="context-blockquote p-4 rounded-3 bg-body border position-relative">
+                        <div class="context-blockquote p-4 rounded-4 bg-body border position-relative mb-4">
                             <div class="context-watermark"><i class="bi bi-quote"></i></div>
                             <p class="mb-0 context-text lead" id="contextTextContainer">
                                 <span class="text-secondary" id="contextBefore">...</span>
-                                <mark class="link-highlight mx-1 px-2 py-1 rounded fw-bold text-white bg-primary" id="contextAnchor">Link</mark>
+                                <mark class="link-highlight mx-1 px-2.5 py-1 rounded fw-bold text-white bg-primary" id="contextAnchor">Link</mark>
                                 <span class="text-secondary" id="contextAfter">...</span>
                             </p>
                         </div>
 
                         <!-- Word Count Stats Footer -->
-                        <div class="d-flex justify-content-between align-items-center mt-3 text-muted small">
+                        <div class="d-flex justify-content-between align-items-center mt-3 text-muted fs-6">
                             <div>
-                                <span class="badge bg-secondary-subtle text-secondary me-1" id="wordsBeforeCount">150</span> words before &bull;
-                                <span class="badge bg-secondary-subtle text-secondary ms-1 me-1" id="wordsAfterCount">150</span> words after
+                                <span class="badge bg-secondary-subtle text-secondary me-1 fs-6 px-2.5 py-1" id="wordsBeforeCount">150</span> words before &bull;
+                                <span class="badge bg-secondary-subtle text-secondary ms-1 me-1 fs-6 px-2.5 py-1" id="wordsAfterCount">150</span> words after
                             </div>
                             <span class="fst-italic text-secondary">Surrounding text extracted live by Playwright DOM analysis</span>
                         </div>
@@ -405,26 +405,26 @@
         </div>
 
         <!-- Not Found / Error Banner -->
-        <div id="alertCard" class="alert alert-warning border-0 shadow-sm mb-4 d-none" role="alert">
+        <div id="alertCard" class="alert alert-warning border-0 shadow-sm mb-5 d-none p-4" role="alert">
             <div class="d-flex align-items-center justify-content-between">
-                <div>
-                    <i class="bi bi-exclamation-triangle-fill fs-5 me-2"></i>
+                <div class="fs-6">
+                    <i class="bi bi-exclamation-triangle-fill fs-4 me-2"></i>
                     <span id="alertMessage">Search completed without reaching target.</span>
                 </div>
             </div>
         </div>
 
         <!-- Visited Intermediate Pages Section -->
-        <div id="intermediateSection" class="card border-0 shadow-sm mb-4 d-none">
-            <div class="card-header bg-body border-bottom py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div id="intermediateSection" class="card border-0 shadow-sm mb-5 d-none">
+            <div class="card-header bg-body border-bottom py-3.5 px-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
                 <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-list-check text-primary fs-5"></i>
-                    <h5 class="mb-0 fw-bold">Intermediate Pages Explored</h5>
-                    <span class="badge rounded-pill text-bg-secondary ms-1" id="intermediateCountBadge">0</span>
+                    <i class="bi bi-list-check text-primary fs-4"></i>
+                    <h4 class="mb-0 fw-bold">Intermediate Pages Explored</h4>
+                    <span class="badge rounded-pill text-bg-secondary ms-1 fs-6 px-3 py-1" id="intermediateCountBadge">0</span>
                 </div>
                 <!-- Filter Search -->
                 <div class="d-flex align-items-center gap-2">
-                    <div class="input-group input-group-sm" style="max-width: 250px;">
+                    <div class="input-group" style="max-width: 280px;">
                         <span class="input-group-text bg-body"><i class="bi bi-funnel"></i></span>
                         <input type="text" class="form-control" id="filterInput" placeholder="Filter visited pages...">
                     </div>
