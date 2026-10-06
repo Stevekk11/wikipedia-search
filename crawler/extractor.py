@@ -226,11 +226,13 @@ async def extract_target_link_context(
     target_slug: str,
     target_title: str,
     words_count: int = 150,
+    source_title: Optional[str] = None,
 ) -> Dict:
     """
     Extract up to words_count before and after the target link on source_slug,
     along with section header.
     """
+    clean_source_title = source_title or source_slug.replace("_", " ")
     try:
         cur_url = page.url or ""
         if f"/wiki/{source_slug}" not in cur_url:
@@ -330,6 +332,7 @@ async def extract_target_link_context(
         )
         if extracted_context:
             return {
+                "source_title": clean_source_title,
                 "source_slug": source_slug,
                 "source_url": f"https://en.wikipedia.org/wiki/{source_slug}",
                 "target_title": target_title,
@@ -347,6 +350,7 @@ async def extract_target_link_context(
         logger.warning(f"Error extracting target link context: {e}")
 
     return {
+        "source_title": clean_source_title,
         "source_slug": source_slug,
         "source_url": f"https://en.wikipedia.org/wiki/{source_slug}",
         "target_title": target_title,
@@ -372,11 +376,14 @@ async def enrich_final_steps_context(page: Any, final_steps: List[Dict]):
     for step in final_steps:
         if not step.get("words_before") and not step.get("words_after"):
             from_slug = step.get("from_slug")
+            from_title = step.get("from_title")
             to_slug = step.get("to_slug")
             to_title = step.get("to_title")
             if from_slug and to_slug:
                 try:
-                    c = await extract_target_link_context(page, from_slug, to_slug, to_title or to_slug, words_count=15)
+                    c = await extract_target_link_context(
+                        page, from_slug, to_slug, to_title or to_slug, words_count=15, source_title=from_title
+                    )
                     if c:
                         if c.get("words_before") or c.get("words_after"):
                             step["words_before"] = c.get("words_before", "")

@@ -67,7 +67,7 @@ def compute_relevance_score(
             score,
             True,
             reasons,
-            "⭐ Direct Feeder (+5,000)",
+            "⭐ Direct Feeder",
             "bg-warning text-dark",
             f"Selected with highest priority: '{link_title}' was identified in the pre-mapped incoming backlinks graph as an immediate 1-hop feeder to '{target_title}'.",
         )

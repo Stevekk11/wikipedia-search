@@ -688,7 +688,8 @@ document.addEventListener("DOMContentLoaded", () => {
     copyContextBtn.addEventListener("click", () => {
         if (!currentLinkContext) return;
         const ctx = currentLinkContext;
-        const textToCopy = `Source Article: ${ctx.source_title} (${ctx.source_url})\nTarget Link: ${ctx.target_title}\n\n"... ${ctx.words_before} [${ctx.anchor_text}] ${ctx.words_after} ..."`;
+        const sourceTitle = ctx.source_title || (ctx.source_slug ? ctx.source_slug.replace(/_/g, " ") : "Source Article");
+        const textToCopy = `Source Article: ${sourceTitle} (${ctx.source_url})\nTarget Link: ${ctx.target_title}\n\n"... ${ctx.words_before} [${ctx.anchor_text}] ${ctx.words_after} ..."`;
         navigator.clipboard.writeText(textToCopy).then(() => {
             const orig = copyContextBtn.innerHTML;
             copyContextBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Copied!`;
@@ -989,7 +990,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (ctx && (ctx.words_before || ctx.words_after || ctx.anchor_text)) {
             contextCard.classList.remove("d-none");
             contextBadgeWords.textContent = `${ctx.requested_words || 150} words before & after`;
-            contextSourceTitle.textContent = ctx.source_title;
+            contextSourceTitle.textContent = ctx.source_title || (ctx.source_slug ? ctx.source_slug.replace(/_/g, " ") : "Source Article");
             contextTargetTitle.textContent = ctx.target_title;
             contextSourceLink.href = ctx.source_url;
             

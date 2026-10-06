@@ -85,11 +85,12 @@ class WikipediaCrawler:
         await enrich_final_steps_context(page, final_steps)
 
         source_slug = final_path_slugs[-2] if len(final_path_slugs) >= 2 else final_path_slugs[0]
+        source_title = final_path_titles[-2] if len(final_path_titles) >= 2 else final_path_titles[0]
         target_slug = final_path_slugs[-1]
         target_title = final_path_titles[-1]
 
         ctx = await extract_target_link_context(
-            page, source_slug, target_slug, target_title, self.context_words
+            page, source_slug, target_slug, target_title, self.context_words, source_title=source_title
         )
 
         return {
