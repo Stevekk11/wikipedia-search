@@ -48,7 +48,7 @@ An interactive web application built with **Playwright**, **FastAPI**, and **Boo
                                                                           ▼
                                                           ┌────────────────────────────────┐
                                                           │   Playwright Crawler Engine    │
-                                                          │   (crawler.py - Chromium/Edge) │
+                                                          │   (crawler/ - Chromium/Edge)   │
                                                           └───────────────┬────────────────┘
                                                                           │
                                                                           ▼
@@ -103,7 +103,14 @@ python -c "import asyncio; from crawler import WikipediaCrawler; asyncio.run(Wik
 
 ```
 wikipedia-search/
-├── crawler.py           # Playwright crawling engine & hop calculator
+├── crawler/             # Modular Playwright crawling engine
+│   ├── __init__.py      # Package exports and platform UTF-8 setup
+│   ├── api.py           # Wikipedia REST / Action API utilities
+│   ├── browser.py       # Playwright browser lifecycle & channel fallbacks
+│   ├── config.py        # Hubs, dead-end patterns, disallowed namespaces
+│   ├── engine.py        # Bidirectional search engine (WikipediaCrawler)
+│   ├── extractor.py     # In-page DOM extraction and context scraping
+│   └── scorer.py        # Heuristic scoring & decision rationale engine
 ├── main.py              # FastAPI server, WebSocket handler, and autocomplete endpoints
 ├── run.py               # Application launcher
 ├── requirements.txt     # Python package requirements
