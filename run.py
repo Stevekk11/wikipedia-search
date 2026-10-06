@@ -40,6 +40,7 @@ def get_or_create_ssl_cert(cert_file: str = "cert.pem", key_file: str = "key.pem
         san = x509.SubjectAlternativeName([
             x509.DNSName("localhost"),
             x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+            x509.IPAddress(ipaddress.IPv4Address("10.0.3.67")),
         ])
 
         cert = (
@@ -71,14 +72,16 @@ def get_or_create_ssl_cert(cert_file: str = "cert.pem", key_file: str = "key.pem
 
 
 def main():
-    port = 8005
-    host = "127.0.0.1"
-    url = f"https://{host}:{port}"
+    port = int(os.environ.get("PORT", 8005))
+    host = os.environ.get("HOST", "0.0.0.0")
+    browser_host = "localhost" if host in ("0.0.0.0", "::") else host
+    url = f"https://{browser_host}:{port}"
     cert_file, key_file = get_or_create_ssl_cert()
 
     print("=" * 60)
     print("  WikiHop - Wikipedia Link Hop Counter (Playwright)")
-    print(f"  Starting web server at {url}")
+    print(f"  Starting web server on {host}:{port}")
+    print(f"  Local access: {url}")
     print("=" * 60)
 
     # Launch browser automatically
