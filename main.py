@@ -378,6 +378,7 @@ async def websocket_search(websocket: WebSocket):
         capture_screenshots = bool(params.get("capture_screenshots", True))
         headless = bool(params.get("headless", True))
         context_words = int(params.get("context_words", 150))
+        use_embeddings = bool(params.get("use_embeddings", True))
 
         current_crawler = WikipediaCrawler(
             start_input=start,
@@ -389,6 +390,7 @@ async def websocket_search(websocket: WebSocket):
             capture_screenshots=capture_screenshots,
             context_words=context_words,
             lang=lang,
+            use_embeddings=use_embeddings,
         )
 
         try:

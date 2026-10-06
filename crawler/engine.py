@@ -51,9 +51,11 @@ class WikipediaCrawler:
         capture_screenshots: bool = True,
         context_words: int = 150,
         lang: str = "en",
+        use_embeddings: bool = True,
     ):
         self.start_input = start_input
         self.target_input = target_input
+        self.use_embeddings = use_embeddings
         self.algorithm = algorithm.lower()
         self.max_pages = max(5, min(max_pages, 1000))
         self.max_depth = max(1, min(max_depth, 50))
@@ -194,7 +196,7 @@ class WikipediaCrawler:
             f"Target '{target_info['title']}' ({len(target_keywords)} keywords, {len(target_backlinks)} pre-mapped backlinks)"
         )
 
-        if self.algorithm == "heuristic":
+        if self.algorithm == "heuristic" and self.use_embeddings:
             # Load the embedding model once, off the event loop (no-op if unavailable/disabled)
             await asyncio.get_running_loop().run_in_executor(None, warm_up)
 
@@ -452,7 +454,7 @@ class WikipediaCrawler:
 
                         # Enqueue forward children
                         if depth < self.max_depth:
-                            if self.algorithm == "heuristic":
+                            if self.algorithm == "heuristic" and self.use_embeddings:
                                 await asyncio.get_running_loop().run_in_executor(
                                     None, prime_embeddings, [l["title"] for l in extracted_links]
                                 )
@@ -474,6 +476,7 @@ class WikipediaCrawler:
                                     depth=depth + 1,
                                     algorithm=self.algorithm,
                                     target_context=target_context,
+                                    use_embeddings=self.use_embeddings,
                                     target_summary=target_summary,
                                 )
                                 badges_list = [{"text": badge, "class": badge_class}]
@@ -766,7 +769,7 @@ class WikipediaCrawler:
 
                         # Enqueue backward parents (pages that link into this node)
                         if depth < self.max_depth:
-                            if self.algorithm == "heuristic":
+                            if self.algorithm == "heuristic" and self.use_embeddings:
                                 await asyncio.get_running_loop().run_in_executor(
                                     None, prime_embeddings, [i["title"] for i in incoming_backlinks]
                                 )
@@ -788,6 +791,7 @@ class WikipediaCrawler:
                                     depth=depth + 1,
                                     algorithm=self.algorithm,
                                     target_context=start_context,
+                                    use_embeddings=self.use_embeddings,
                                     target_summary=start_summary,
                                 )
 

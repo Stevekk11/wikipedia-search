@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
         maxPages: 35,
         maxDepth: 5,
         captureScreenshots: true,
+        useEmbeddings: true,
         headless: true,
     };
 
@@ -59,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const modalMaxDepth = document.getElementById("modalMaxDepth");
     const modalMaxDepthBadge = document.getElementById("modalMaxDepthBadge");
     const modalScreenshotToggle = document.getElementById("modalScreenshotToggle");
+    const modalEmbeddingsToggle = document.getElementById("modalEmbeddingsToggle");
     const modalHeadlessToggle = document.getElementById("modalHeadlessToggle");
     const saveSettingsBtn = document.getElementById("saveSettingsBtn");
     const resetSettingsBtn = document.getElementById("resetSettingsBtn");
@@ -190,6 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
         appSettings.maxPages = parseInt(modalMaxPages.value) || 35;
         appSettings.maxDepth = parseInt(modalMaxDepth.value) || 5;
         appSettings.captureScreenshots = modalScreenshotToggle.checked;
+        appSettings.useEmbeddings = modalEmbeddingsToggle.checked;
         appSettings.headless = modalHeadlessToggle.checked;
 
         localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
@@ -253,6 +256,7 @@ document.addEventListener("DOMContentLoaded", () => {
         modalMaxDepth.value = appSettings.maxDepth;
         modalMaxDepthBadge.textContent = appSettings.maxDepth;
         modalScreenshotToggle.checked = appSettings.captureScreenshots;
+        modalEmbeddingsToggle.checked = appSettings.useEmbeddings !== false;
         modalHeadlessToggle.checked = appSettings.headless;
 
         // Summary Badges
@@ -974,6 +978,7 @@ document.addEventListener("DOMContentLoaded", () => {
             max_depth: appSettings.maxDepth,
             capture_screenshots: appSettings.captureScreenshots,
             headless: appSettings.headless,
+            use_embeddings: appSettings.useEmbeddings,
             context_words: appSettings.contextWords,
         };
 

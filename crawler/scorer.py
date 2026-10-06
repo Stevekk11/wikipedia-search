@@ -32,6 +32,7 @@ def compute_relevance_score(
     algorithm: str = "heuristic",
     target_context: Optional[Iterable[str]] = None,
     target_summary: str = "",
+    use_embeddings: bool = True,
 ) -> Tuple[float, bool, List[str], str, str, str]:
     """
     Advanced heuristic score for a candidate link.
@@ -107,7 +108,7 @@ def compute_relevance_score(
     overlap = target_tokens.intersection(link_tokens)
 
     # Embedding similarity between candidate and target (None if model unavailable)
-    similarity = cosine_similarity(link_title, target_title)
+    similarity = cosine_similarity(link_title, target_title) if use_embeddings else None
 
     if overlap:
         overlap_pts = len(overlap) * 120.0
