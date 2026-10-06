@@ -28,6 +28,7 @@ from .extractor import (
     get_page_backlinks,
 )
 from .scorer import compute_relevance_score
+from .semantic import prime_embeddings, warm_up
 
 logger = logging.getLogger("wikipedia_crawler.engine")
 
@@ -192,6 +193,10 @@ class WikipediaCrawler:
             f"Bidirectional search initialized: Start '{start_info['title']}' ({len(start_keywords)} keywords) <===> "
             f"Target '{target_info['title']}' ({len(target_keywords)} keywords, {len(target_backlinks)} pre-mapped backlinks)"
         )
+
+        if self.algorithm == "heuristic":
+            # Load the embedding model once, off the event loop (no-op if unavailable/disabled)
+            await asyncio.get_running_loop().run_in_executor(None, warm_up)
 
         yield {
             "event": "started",
@@ -447,6 +452,10 @@ class WikipediaCrawler:
 
                         # Enqueue forward children
                         if depth < self.max_depth:
+                            if self.algorithm == "heuristic":
+                                await asyncio.get_running_loop().run_in_executor(
+                                    None, prime_embeddings, [l["title"] for l in extracted_links]
+                                )
                             scored_candidates = []
                             for link in extracted_links:
                                 c_slug = link["slug"]
@@ -757,6 +766,10 @@ class WikipediaCrawler:
 
                         # Enqueue backward parents (pages that link into this node)
                         if depth < self.max_depth:
+                            if self.algorithm == "heuristic":
+                                await asyncio.get_running_loop().run_in_executor(
+                                    None, prime_embeddings, [i["title"] for i in incoming_backlinks]
+                                )
                             scored_parents = []
                             for inc in incoming_backlinks:
                                 p_slug = inc["slug"]

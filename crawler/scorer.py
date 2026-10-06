@@ -107,7 +107,7 @@ def compute_relevance_score(
     overlap = target_tokens.intersection(link_tokens)
 
     # Embedding similarity between candidate and target (None if model unavailable)
-    similarity = cosine_similarity(link_title, target_summary or target_title) if target_summary or target_title else None
+    similarity = cosine_similarity(link_title, target_title)
 
     if overlap:
         overlap_pts = len(overlap) * 120.0
@@ -121,7 +121,7 @@ def compute_relevance_score(
             primary_badge = f"Keywords ({', '.join(sorted(overlap)[:2])})"
             badge_class = "bg-primary text-white"
 
-    if similarity is not None and similarity > LOW_SIMILARITY:
+    if similarity is not None and not overlap and similarity > LOW_SIMILARITY:
         sim_pts = (similarity - LOW_SIMILARITY) * 400.0
         score += sim_pts
         reasons.append(f"Embedding similarity to target {similarity:.2f} (+{sim_pts:.0f} pts)")

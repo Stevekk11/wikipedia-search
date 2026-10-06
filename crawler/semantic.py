@@ -103,3 +103,24 @@ def cosine_similarity(text_a: str, text_b: str) -> Optional[float]:
     if a is None or b is None:
         return None
     return float(sum(float(x) * float(y) for x, y in zip(a, b)))
+
+
+def warm_up() -> bool:
+    """Load the model (blocking). Returns True if embeddings are usable."""
+    return embeddings_enabled() and _get_model() is not None
+
+
+def prime_embeddings(texts) -> None:
+    """Batch-encode texts into the cache (~1ms/text vs ~20ms one-by-one)."""
+    if not embeddings_enabled():
+        return
+    model = _get_model()
+    if model is None:
+        return
+    todo = list({t for t in texts if t and t not in _embedding_cache})
+    if not todo:
+        return
+    if len(_embedding_cache) + len(todo) > 20000:
+        _embedding_cache.clear()
+    for t, vec in zip(todo, model.encode(todo, batch_size=64, normalize_embeddings=True)):
+        _embedding_cache[t] = vec
