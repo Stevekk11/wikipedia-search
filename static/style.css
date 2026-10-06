@@ -59,6 +59,32 @@ body {
     -webkit-text-fill-color: transparent;
 }
 
+/* Language Switcher Styling */
+.language-menu {
+    min-width: 260px;
+    border-radius: 14px;
+    padding: 0.5rem;
+}
+
+.language-menu .dropdown-item {
+    border-radius: 8px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.92rem;
+    transition: all 0.15s ease-in-out;
+}
+
+.language-menu .dropdown-item:hover {
+    background-color: rgba(59, 130, 246, 0.12);
+    color: var(--bs-primary);
+    transform: translateX(3px);
+}
+
+.language-menu .dropdown-item.active {
+    background-color: var(--bs-primary);
+    color: #ffffff;
+    font-weight: 600;
+}
+
 .brand-icon {
     width: 44px;
     height: 44px;

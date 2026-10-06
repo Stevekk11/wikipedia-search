@@ -74,13 +74,14 @@ async def favicon():
 
 
 @app.get("/api/autocomplete")
-async def autocomplete(q: str = Query(..., min_length=1)):
+async def autocomplete(q: str = Query(..., min_length=1), lang: str = Query("en")):
     """
     Search Wikipedia articles for live autocomplete suggestions.
-    Uses Wikipedia Opensearch API.
+    Uses Wikipedia Opensearch API for the specified language.
     """
     try:
-        url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(q)}&limit=8&namespace=0&format=json"
+        lang_code = (lang or "en").strip().lower()
+        url = f"https://{lang_code}.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(q)}&limit=8&namespace=0&format=json"
         headers = {"User-Agent": "WikipediaHopFinder/1.0 (contact@example.com)"}
         r = requests.get(url, headers=headers, timeout=4)
         if r.status_code == 200:
@@ -94,77 +95,224 @@ async def autocomplete(q: str = Query(..., min_length=1)):
                 results.append({
                     "title": titles[i],
                     "description": descriptions[i] if i < len(descriptions) else "",
-                    "url": urls[i] if i < len(urls) else f"https://en.wikipedia.org/wiki/{titles[i].replace(' ', '_')}",
+                    "url": urls[i] if i < len(urls) else f"https://{lang_code}.wikipedia.org/wiki/{titles[i].replace(' ', '_')}",
                 })
             return JSONResponse({"results": results})
     except Exception as e:
-        logger.warning(f"Autocomplete error for '{q}': {e}")
+        logger.warning(f"Autocomplete error for '{q}' ({lang}): {e}")
     return JSONResponse({"results": []})
 
 
 @app.get("/api/info")
-async def get_info(title: str = Query(...)):
+async def get_info(title: str = Query(...), lang: str = Query("en")):
     """Fetch article canonical metadata, snippet, and thumbnail."""
-    info = get_wikipedia_info(title)
+    info = get_wikipedia_info(title, lang=lang)
     return JSONResponse(info)
 
 
 @app.get("/api/article-assessments")
-async def get_article_assessments(titles: str = Query(..., description="Comma or pipe-separated article titles or slugs")):
+async def get_article_assessments(
+    titles: str = Query(..., description="Comma or pipe-separated article titles or slugs"),
+    lang: str = Query("en"),
+):
     """
     Fetch Wikipedia article quality assessments, Bootstrap icons, colors, and WikiProjects.
     """
     try:
         clean_titles = [t.strip() for t in re.split(r"[,|]", titles) if t.strip()]
-        data = fetch_article_assessments(clean_titles)
+        data = fetch_article_assessments(clean_titles, lang=lang)
         return JSONResponse(data)
     except Exception as e:
-        logger.error(f"Error fetching article assessments for '{titles}': {e}")
+        logger.error(f"Error fetching article assessments for '{titles}' ({lang}): {e}")
         return JSONResponse({}, status_code=500)
 
 
 @app.get("/api/presets")
-async def get_presets():
-    """Curated list of interesting Wikipedia page pairs."""
-    presets = [
-        {
-            "start": "London",
-            "target": "New York City",
-            "category": "Global Cities",
-            "description": "Two world financial capitals and cultural centers",
-        },
-        {
-            "start": "Python (programming language)",
-            "target": "Philosophy",
-            "category": "Classic Wikipedia Game",
-            "description": "Explore the famous concept that all Wikipedia roads lead to Philosophy",
-        },
-        {
-            "start": "Albert Einstein",
-            "target": "Moon",
-            "category": "Science & Space",
-            "description": "From the father of relativity to Earth's celestial satellite",
-        },
-        {
-            "start": "The Beatles",
-            "target": "Tokyo",
-            "category": "Music & Geography",
-            "description": "Legendary British rock band to Japan's bustling capital",
-        },
-        {
-            "start": "Batman",
-            "target": "Renaissance",
-            "category": "Culture & History",
-            "description": "Gotham's superhero to the rebirth of European art and science",
-        },
-        {
-            "start": "Coffee",
-            "target": "International Space Station",
-            "category": "Everyday to Cosmos",
-            "description": "Morning beverage to humanity's orbital outpost",
-        },
-    ]
-    return JSONResponse({"presets": presets})
+async def get_presets(lang: str = Query("en")):
+    """Curated list of interesting Wikipedia page pairs across languages."""
+    lang_code = (lang or "en").strip().lower()
+
+    presets_by_lang = {
+        "en": [
+            {
+                "start": "London",
+                "target": "New York City",
+                "category": "Global Cities",
+                "description": "Two world financial capitals and cultural centers",
+            },
+            {
+                "start": "Python (programming language)",
+                "target": "Philosophy",
+                "category": "Classic Wikipedia Game",
+                "description": "Explore the famous concept that all Wikipedia roads lead to Philosophy",
+            },
+            {
+                "start": "Albert Einstein",
+                "target": "Moon",
+                "category": "Science & Space",
+                "description": "From the father of relativity to Earth's celestial satellite",
+            },
+            {
+                "start": "The Beatles",
+                "target": "Tokyo",
+                "category": "Music & Geography",
+                "description": "Legendary British rock band to Japan's bustling capital",
+            },
+            {
+                "start": "Batman",
+                "target": "Renaissance",
+                "category": "Culture & History",
+                "description": "Gotham's superhero to the rebirth of European art and science",
+            },
+            {
+                "start": "Coffee",
+                "target": "International Space Station",
+                "category": "Everyday to Cosmos",
+                "description": "Morning beverage to humanity's orbital outpost",
+            },
+        ],
+        "de": [
+            {
+                "start": "Berlin",
+                "target": "Wien",
+                "category": "Hauptstädte",
+                "description": "Zwei historische europäische Hauptstädte und Kulturzentren",
+            },
+            {
+                "start": "Albert Einstein",
+                "target": "Philosophie",
+                "category": "Wissenschaft & Denken",
+                "description": "Vom Nobelpreisträger zur Mutter aller Wissenschaften",
+            },
+            {
+                "start": "Kaffee",
+                "target": "Mond",
+                "category": "Alltag zu Kosmos",
+                "description": "Vom Heißgetränk zu unserem Trabanten",
+            },
+            {
+                "start": "Johann Wolfgang von Goethe",
+                "target": "Rom",
+                "category": "Literatur & Reisen",
+                "description": "Von der Weimarer Klassik zur italienischen Reise",
+            },
+        ],
+        "fr": [
+            {
+                "start": "Paris",
+                "target": "Montréal",
+                "category": "Francophonie",
+                "description": "Deux grandes métropoles francophones",
+            },
+            {
+                "start": "Tour Eiffel",
+                "target": "Philosophie",
+                "category": "Culture & Pensée",
+                "description": "Du monument parisien emblématique à la philosophie",
+            },
+            {
+                "start": "Marie Curie",
+                "target": "Lune",
+                "category": "Science & Espace",
+                "description": "Pionnière de la radioactivité jusqu'à la Lune",
+            },
+            {
+                "start": "Victor Hugo",
+                "target": "Révolution française",
+                "category": "Histoire & Littérature",
+                "description": "De l'auteur des Misérables à l'histoire de France",
+            },
+        ],
+        "es": [
+            {
+                "start": "Madrid",
+                "target": "Buenos Aires",
+                "category": "Grandes Ciudades",
+                "description": "Dos capitales culturales del mundo hispanohablante",
+            },
+            {
+                "start": "Miguel de Cervantes",
+                "target": "Filosofía",
+                "category": "Literatura & Pensamiento",
+                "description": "Del creador del Quijote a la filosofía clásica",
+            },
+            {
+                "start": "Café",
+                "target": "Luna",
+                "category": "Cotidiano al Cosmos",
+                "description": "Desde la bebida universal hasta nuestro satélite",
+            },
+            {
+                "start": "Amazonas",
+                "target": "Inteligencia artificial",
+                "category": "Naturaleza a Tecnología",
+                "description": "Del río más caudaloso a las redes neuronales",
+            },
+        ],
+        "it": [
+            {
+                "start": "Roma",
+                "target": "Parigi",
+                "category": "Capitali d'Europa",
+                "description": "Dalla Città Eterna alla capitale francese",
+            },
+            {
+                "start": "Leonardo da Vinci",
+                "target": "Luna",
+                "category": "Arte e Scienza",
+                "description": "Dal genio del Rinascimento alla corsa allo spazio",
+            },
+            {
+                "start": "Dante Alighieri",
+                "target": "Filosofia",
+                "category": "Letteratura e Pensiero",
+                "description": "Dal Sommo Poeta al pensiero filosofico",
+            },
+        ],
+        "ja": [
+            {
+                "start": "東京",
+                "target": "京都",
+                "category": "日本の都市",
+                "description": "日本の首都から古都への旅",
+            },
+            {
+                "start": "富士山",
+                "target": "月",
+                "category": "自然と宇宙",
+                "description": "日本最高峰から地球の衛星へ",
+            },
+            {
+                "start": "夏目漱石",
+                "target": "哲学",
+                "category": "文学と哲学",
+                "description": "文豪から哲学の探求へ",
+            },
+        ],
+        "ru": [
+            {
+                "start": "Москва",
+                "target": "Санкт-Петербург",
+                "category": "Города России",
+                "description": "Две столицы: современная и историческая",
+            },
+            {
+                "start": "Юрий Гагарин",
+                "target": "Луна",
+                "category": "Космонавтика",
+                "description": "От первого человека в космосе до спутника Земли",
+            },
+            {
+                "start": "Лев Толстой",
+                "target": "Философия",
+                "category": "Литература и мысль",
+                "description": "От классика литературы к философским истокам",
+            },
+        ],
+    }
+
+    presets = presets_by_lang.get(lang_code, presets_by_lang["en"])
+    return JSONResponse({"presets": presets, "lang": lang_code})
 
 
 @app.post("/api/shutdown")
@@ -201,6 +349,7 @@ async def websocket_search(websocket: WebSocket):
         nonlocal current_crawler
         start = params.get("start", "").strip()
         target = params.get("target", "").strip()
+        lang = params.get("lang", "en").strip().lower()
         algorithm = params.get("algorithm", "heuristic")
         max_pages = int(params.get("max_pages", 40))
         max_depth = int(params.get("max_depth", 5))
@@ -217,6 +366,7 @@ async def websocket_search(websocket: WebSocket):
             headless=headless,
             capture_screenshots=capture_screenshots,
             context_words=context_words,
+            lang=lang,
         )
 
         try:

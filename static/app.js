@@ -7,6 +7,7 @@
 document.addEventListener("DOMContentLoaded", () => {
     // --- Default Settings ---
     const DEFAULT_SETTINGS = {
+        lang: "en",
         contextWords: 150,
         algorithm: "heuristic",
         maxPages: 35,
@@ -17,6 +18,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let appSettings = { ...DEFAULT_SETTINGS };
 
+    // Language metadata lookup
+    const LANG_NAMES = {
+        en: { name: "English", flag: "🇬🇧", label: "EN (English)" },
+        de: { name: "Deutsch", flag: "🇩🇪", label: "DE (Deutsch)" },
+        fr: { name: "Français", flag: "🇫🇷", label: "FR (Français)" },
+        es: { name: "Español", flag: "🇪🇸", label: "ES (Español)" },
+        it: { name: "Italiano", flag: "🇮🇹", label: "IT (Italiano)" },
+        ja: { name: "日本語", flag: "🇯🇵", label: "JA (日本語)" },
+        ru: { name: "Русский", flag: "🇷🇺", label: "RU (Русский)" },
+        zh: { name: "中文", flag: "🇨🇳", label: "ZH (中文)" },
+        pt: { name: "Português", flag: "🇵🇹", label: "PT (Português)" },
+        nl: { name: "Nederlands", flag: "🇳🇱", label: "NL (Nederlands)" },
+        pl: { name: "Polski", flag: "🇵🇱", label: "PL (Polski)" },
+    };
+
     // --- DOM Elements ---
     const searchForm = document.getElementById("searchForm");
     const startInput = document.getElementById("startInput");
@@ -25,6 +41,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const startSuggestions = document.getElementById("startSuggestions");
     const targetSuggestions = document.getElementById("targetSuggestions");
     const presetsContainer = document.getElementById("presetsContainer");
+
+    const currentLanguageLabel = document.getElementById("currentLanguageLabel");
+    const summaryLanguageBadge = document.getElementById("summaryLanguageBadge");
+    const modalLanguage = document.getElementById("modalLanguage");
 
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
@@ -163,6 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function saveSettings() {
+        appSettings.lang = (modalLanguage ? modalLanguage.value : appSettings.lang) || "en";
         appSettings.contextWords = parseInt(modalContextWords.value) || 150;
         appSettings.algorithm = modalAlgorithm.value;
         appSettings.maxPages = parseInt(modalMaxPages.value) || 35;
@@ -172,10 +193,57 @@ document.addEventListener("DOMContentLoaded", () => {
 
         localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
         syncSettingsToUI();
+        loadPresets();
+    }
+
+    function setLanguage(newLang) {
+        if (!newLang) return;
+        newLang = newLang.toLowerCase().trim();
+        appSettings.lang = newLang;
+        localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
+        syncSettingsToUI();
+        loadPresets();
+
+        // Update active class on dropdown options
+        document.querySelectorAll(".lang-option").forEach((opt) => {
+            if (opt.getAttribute("data-lang") === newLang) {
+                opt.classList.add("active");
+            } else {
+                opt.classList.remove("active");
+            }
+        });
     }
 
     function syncSettingsToUI() {
+        const langCode = appSettings.lang || "en";
+        const langMeta = LANG_NAMES[langCode] || { name: langCode.toUpperCase(), flag: "🌐", label: `${langCode.toUpperCase()} (${langCode}.wikipedia.org)` };
+
+        // Language Dropdown Label in Navbar
+        if (currentLanguageLabel) {
+            currentLanguageLabel.innerHTML = `${langMeta.flag} ${langCode.toUpperCase()} (${langMeta.name})`;
+        }
+
+        // Summary Badge in Search Card
+        if (summaryLanguageBadge) {
+            summaryLanguageBadge.innerHTML = `<i class="bi bi-globe2 me-1"></i> Edition: ${langCode}.wikipedia.org`;
+        }
+
         // Modal inputs
+        if (modalLanguage) {
+            modalLanguage.value = langCode;
+            if (!modalLanguage.value) {
+                // If custom language is selected
+                let customOpt = modalLanguage.querySelector(`option[value="${langCode}"]`);
+                if (!customOpt) {
+                    customOpt = document.createElement("option");
+                    customOpt.value = langCode;
+                    customOpt.textContent = `🌐 ${langCode} (${langCode}.wikipedia.org)`;
+                    modalLanguage.appendChild(customOpt);
+                }
+                modalLanguage.value = langCode;
+            }
+        }
+
         modalContextWords.value = appSettings.contextWords;
         modalContextWordsBadge.textContent = `${appSettings.contextWords} words`;
         modalAlgorithm.value = appSettings.algorithm;
@@ -190,6 +258,28 @@ document.addEventListener("DOMContentLoaded", () => {
         summaryContextBadge.innerHTML = `<i class="bi bi-quote me-1"></i> Context: ${appSettings.contextWords} words`;
         summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Bidirectional Smart A*" : "Bidirectional BFS"}`;
         summaryLimitBadge.innerHTML = `<i class="bi bi-speedometer2 me-1"></i> Max ${appSettings.maxPages} Pages`;
+    }
+
+    // Bind Navbar Language Switcher Dropdown
+    document.querySelectorAll(".lang-option").forEach((opt) => {
+        opt.addEventListener("click", (e) => {
+            e.preventDefault();
+            const chosen = opt.getAttribute("data-lang");
+            if (chosen === "custom") {
+                const customCode = prompt("Enter ISO 639-1 language code for Wikipedia (e.g., 'sv', 'ko', 'ar', 'uk', 'he'):", "en");
+                if (customCode && customCode.trim()) {
+                    setLanguage(customCode.trim().toLowerCase());
+                }
+            } else {
+                setLanguage(chosen);
+            }
+        });
+    });
+
+    if (modalLanguage) {
+        modalLanguage.addEventListener("change", (e) => {
+            setLanguage(e.target.value);
+        });
     }
 
     modalContextWords.addEventListener("input", (e) => {
@@ -605,7 +695,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             debounceTimer = setTimeout(async () => {
                 try {
-                    const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}`);
+                    const langCode = appSettings.lang || "en";
+                    const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}&lang=${encodeURIComponent(langCode)}`);
                     const data = await res.json();
                     renderSuggestions(data.results || [], inputEl, dropdownEl);
                 } catch (e) {
@@ -653,10 +744,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- Load Presets ---
     async function loadPresets() {
         try {
-            const res = await fetch("/api/presets");
+            const langCode = appSettings.lang || "en";
+            const res = await fetch(`/api/presets?lang=${encodeURIComponent(langCode)}`);
             const data = await res.json();
             presetsContainer.innerHTML = "";
-            (data.presets || []).forEach((p) => {
+            const presets = data.presets || [];
+            presets.forEach((p) => {
                 const chip = document.createElement("span");
                 chip.className = "preset-chip text-body-secondary";
                 chip.innerHTML = `${escapeHtml(p.start)} &rarr; ${escapeHtml(p.target)}`;
@@ -667,6 +760,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
                 presetsContainer.appendChild(chip);
             });
+
+            // Update default input values if currently using default pair
+            if (presets.length > 0) {
+                const currentStart = startInput.value.trim();
+                const currentTarget = targetInput.value.trim();
+                if (!currentStart || currentStart === "London" || currentStart === "Berlin" || currentStart === "Paris" || currentStart === "Madrid" || currentStart === "Roma" || currentStart === "東京" || currentStart === "Москва") {
+                    startInput.value = presets[0].start;
+                    startInput.placeholder = `e.g. ${presets[0].start}`;
+                }
+                if (!currentTarget || currentTarget === "New York City" || currentTarget === "Wien" || currentTarget === "Montréal" || currentTarget === "Buenos Aires" || currentTarget === "Parigi" || currentTarget === "京都" || currentTarget === "Санкт-Петербург") {
+                    targetInput.value = presets[0].target;
+                    targetInput.placeholder = `e.g. ${presets[0].target}`;
+                }
+            }
         } catch (e) {
             console.error("Error loading presets:", e);
         }
@@ -782,6 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
         currentCrawlParams = {
             start: start,
             target: target,
+            lang: appSettings.lang || "en",
             algorithm: appSettings.algorithm,
             maxPages: appSettings.maxPages,
             maxDepth: appSettings.maxDepth,
@@ -794,6 +902,7 @@ document.addEventListener("DOMContentLoaded", () => {
             action: "start",
             start: start,
             target: target,
+            lang: appSettings.lang || "en",
             algorithm: appSettings.algorithm,
             max_pages: appSettings.maxPages,
             max_depth: appSettings.maxDepth,
@@ -995,7 +1104,8 @@ document.addEventListener("DOMContentLoaded", () => {
     async function fetchAssessmentsForPath(titles) {
         if (!titles || !titles.length) return null;
         try {
-            const res = await fetch(`/api/article-assessments?titles=${encodeURIComponent(titles.join(","))}`);
+            const langCode = appSettings.lang || "en";
+            const res = await fetch(`/api/article-assessments?titles=${encodeURIComponent(titles.join(","))}&lang=${encodeURIComponent(langCode)}`);
             if (res.ok) {
                 return await res.json();
             }
@@ -1036,10 +1146,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Render Visual Hop Chain
         hopChainWrapper.innerHTML = "";
+        const langCode = appSettings.lang || "en";
         data.path.forEach((title, index) => {
             const isStart = index === 0;
             const isTarget = index === data.path.length - 1;
-            const url = data.urls ? data.urls[index] : `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+            const url = data.urls ? data.urls[index] : `https://${langCode}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
 
             const node = document.createElement("div");
             node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
