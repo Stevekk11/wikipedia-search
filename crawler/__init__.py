@@ -20,6 +20,8 @@ from .config import (
 )
 from .api import (
     fetch_article_assessments,
+    fetch_random_article_pair,
+    fetch_random_article_title,
     fetch_target_backlinks,
     fetch_target_categories,
     get_wikipedia_info,
@@ -40,6 +42,8 @@ __all__ = [
     "WikipediaCrawler",
     "get_wikipedia_info",
     "normalize_slug_or_title",
+    "fetch_random_article_pair",
+    "fetch_random_article_title",
     "fetch_target_backlinks",
     "fetch_target_categories",
     "fetch_article_assessments",

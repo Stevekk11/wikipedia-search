@@ -362,3 +362,64 @@ def fetch_article_assessments(titles_or_slugs: List[str], lang: str = "en") -> D
             results[req.replace(" ", "_")] = fallback
 
     return results
+
+
+def fetch_random_article_title(lang: str = "en") -> str:
+    """
+    Fetch a single random article title using Special:Random from the specified Wikipedia edition
+    (defaults to English Wikipedia).
+    Uses HEAD request to follow or inspect the 302/Location redirect, with GET fallback.
+    """
+    lang = (lang or "en").strip().lower()
+    headers = {"User-Agent": DEFAULT_REST_USER_AGENT}
+    url = f"https://{lang}.wikipedia.org/wiki/Special:Random"
+
+    try:
+        r = requests.head(url, headers=headers, allow_redirects=False, timeout=5)
+        loc = r.headers.get("Location", "")
+        if loc and "/wiki/" in loc:
+            slug = loc.split("/wiki/")[-1].split("?")[0].split("#")[0]
+            title = urllib.parse.unquote(slug).replace("_", " ")
+            if title and title != "Special:Random":
+                return title
+    except Exception as e:
+        logger.debug(f"HEAD request to {url} failed: {e}")
+
+    # Fallback to GET with redirects followed
+    try:
+        r = requests.get(url, headers=headers, allow_redirects=True, timeout=5)
+        parsed = urllib.parse.urlsplit(r.url)
+        slug = parsed.path.split("/wiki/")[-1] if "/wiki/" in parsed.path else parsed.path.strip("/")
+        slug = slug.split("?")[0].split("#")[0]
+        title = urllib.parse.unquote(slug).replace("_", " ")
+        if title and title != "Special:Random":
+            return title
+    except Exception as e:
+        logger.warning(f"Failed to fetch random article from {url}: {e}")
+
+    return ""
+
+
+def fetch_random_article_pair(lang: str = "en") -> tuple[str, str]:
+    """
+    Fetch two distinct random article titles using Special:Random from English Wikipedia.
+    """
+    titles: List[str] = []
+    seen: Set[str] = set()
+
+    for _ in range(6):
+        title = fetch_random_article_title(lang=lang)
+        if title and title.lower() not in seen:
+            seen.add(title.lower())
+            titles.append(title)
+            if len(titles) == 2:
+                break
+
+    if len(titles) == 2:
+        return titles[0], titles[1]
+    elif len(titles) == 1:
+        fallback = "Philosophy" if titles[0].lower() != "philosophy" else "Science"
+        return titles[0], fallback
+    else:
+        return "London", "New York City"
+

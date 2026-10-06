@@ -48,6 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
+    const randomBtn = document.getElementById("randomBtn");
 
     // Settings Modal Elements
     const modalContextWords = document.getElementById("modalContextWords");
@@ -258,6 +259,21 @@ document.addEventListener("DOMContentLoaded", () => {
         summaryContextBadge.innerHTML = `<i class="bi bi-quote me-1"></i> Context: ${appSettings.contextWords} words`;
         summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Bidirectional Smart A*" : "Bidirectional BFS"}`;
         summaryLimitBadge.innerHTML = `<i class="bi bi-speedometer2 me-1"></i> Max ${appSettings.maxPages} Pages`;
+
+        // Update Random Button state (only active for English Wikipedia)
+        if (randomBtn) {
+            const isEn = (appSettings.lang || "en").toLowerCase() === "en";
+            const isRunning = startBtn && startBtn.classList.contains("d-none");
+            if (!isEn) {
+                randomBtn.disabled = true;
+                randomBtn.classList.add("disabled", "opacity-50");
+                randomBtn.title = "Random articles are only available for the English Wikipedia";
+            } else if (!isRunning) {
+                randomBtn.disabled = false;
+                randomBtn.classList.remove("disabled", "opacity-50");
+                randomBtn.title = "Select two random articles (English Wikipedia)";
+            }
+        }
     }
 
     // Bind Navbar Language Switcher Dropdown
@@ -779,6 +795,56 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
     loadPresets();
+
+    // --- Random Button (English Wikipedia Special:Random) ---
+    if (randomBtn) {
+        randomBtn.addEventListener("click", async () => {
+            const isEn = (appSettings.lang || "en").toLowerCase() === "en";
+            if (!isEn) return;
+
+            const origHtml = randomBtn.innerHTML;
+            randomBtn.disabled = true;
+            randomBtn.classList.add("disabled", "opacity-75");
+            randomBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Randomizing...`;
+
+            // Hide autocomplete suggestions if open
+            if (startSuggestions) startSuggestions.classList.add("d-none");
+            if (targetSuggestions) targetSuggestions.classList.add("d-none");
+
+            try {
+                const res = await fetch("/api/random");
+                if (!res.ok) {
+                    throw new Error(`Server returned status ${res.status}`);
+                }
+                const data = await res.json();
+                if (data.start && data.target) {
+                    startInput.value = data.start;
+                    targetInput.value = data.target;
+
+                    // Trigger input events so any UI listeners or clear buttons update
+                    startInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+                } else {
+                    throw new Error(data.error || "Invalid response format");
+                }
+            } catch (err) {
+                console.error("Error fetching random articles:", err);
+                showAlert("Failed to select random articles from English Wikipedia. Please try again.");
+            } finally {
+                const currentIsEn = (appSettings.lang || "en").toLowerCase() === "en";
+                const isRunning = startBtn && startBtn.classList.contains("d-none");
+                randomBtn.innerHTML = origHtml;
+                if (currentIsEn && !isRunning) {
+                    randomBtn.disabled = false;
+                    randomBtn.classList.remove("disabled", "opacity-75", "opacity-50");
+                } else {
+                    randomBtn.disabled = true;
+                    randomBtn.classList.add("disabled", "opacity-50");
+                    randomBtn.classList.remove("opacity-75");
+                }
+            }
+        });
+    }
 
     // --- Filter Visited Pages ---
     filterInput.addEventListener("input", () => {
@@ -1520,12 +1586,28 @@ document.addEventListener("DOMContentLoaded", () => {
         if (isRunning) {
             startBtn.classList.add("d-none");
             stopBtn.classList.remove("d-none");
+            if (randomBtn) {
+                randomBtn.disabled = true;
+                randomBtn.classList.add("disabled", "opacity-50");
+            }
             startInput.disabled = true;
             targetInput.disabled = true;
             swapBtn.disabled = true;
         } else {
             startBtn.classList.remove("d-none");
             stopBtn.classList.add("d-none");
+            if (randomBtn) {
+                const isEn = (appSettings.lang || "en").toLowerCase() === "en";
+                if (isEn) {
+                    randomBtn.disabled = false;
+                    randomBtn.classList.remove("disabled", "opacity-50");
+                    randomBtn.title = "Select two random articles (English Wikipedia)";
+                } else {
+                    randomBtn.disabled = true;
+                    randomBtn.classList.add("disabled", "opacity-50");
+                    randomBtn.title = "Random articles are only available for the English Wikipedia";
+                }
+            }
             startInput.disabled = false;
             targetInput.disabled = false;
             swapBtn.disabled = false;

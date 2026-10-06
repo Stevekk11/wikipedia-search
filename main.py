@@ -26,7 +26,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from crawler import WikipediaCrawler, get_wikipedia_info, fetch_article_assessments
+from crawler import (
+    WikipediaCrawler,
+    get_wikipedia_info,
+    fetch_article_assessments,
+    fetch_random_article_pair,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wikipedia_app")
@@ -125,6 +130,23 @@ async def get_article_assessments(
     except Exception as e:
         logger.error(f"Error fetching article assessments for '{titles}' ({lang}): {e}")
         return JSONResponse({}, status_code=500)
+
+
+@app.get("/api/random")
+async def get_random_articles():
+    """
+    Fetch two random articles from English Wikipedia using Special:Random.
+    """
+    try:
+        start_title, target_title = await asyncio.to_thread(fetch_random_article_pair, "en")
+        return JSONResponse({
+            "articles": [start_title, target_title],
+            "start": start_title,
+            "target": target_title,
+        })
+    except Exception as e:
+        logger.error(f"Error fetching random articles: {e}")
+        return JSONResponse({"error": "Failed to fetch random articles from English Wikipedia"}, status_code=500)
 
 
 @app.get("/api/presets")
