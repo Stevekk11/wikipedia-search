@@ -39,9 +39,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const searchForm = document.getElementById("searchForm");
     const startInput = document.getElementById("startInput");
     const targetInput = document.getElementById("targetInput");
+    const viaInput = document.getElementById("viaInput");
     const swapBtn = document.getElementById("swapBtn");
     const startSuggestions = document.getElementById("startSuggestions");
     const targetSuggestions = document.getElementById("targetSuggestions");
+    const viaSuggestions = document.getElementById("viaSuggestions");
     const presetsContainer = document.getElementById("presetsContainer");
 
     const currentLanguageLabel = document.getElementById("currentLanguageLabel");
@@ -462,6 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
             date: dateStr,
             start: currentCrawlParams.start || startInput.value.trim(),
             target: currentCrawlParams.target || targetInput.value.trim(),
+            via: currentCrawlParams.via || "",
             algorithm: currentCrawlParams.algorithm || appSettings.algorithm,
             max_pages: currentCrawlParams.maxPages || appSettings.maxPages,
             max_depth: currentCrawlParams.maxDepth || appSettings.maxDepth,
@@ -596,6 +599,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Populate search inputs
         startInput.value = item.start;
         targetInput.value = item.target;
+        if (viaInput) viaInput.value = item.via || "";
 
         // Restore KPI & stats counters
         statsSection.classList.remove("d-none");
@@ -821,6 +825,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setupAutocomplete(startInput, startSuggestions);
     setupAutocomplete(targetInput, targetSuggestions);
+    if (viaInput && viaSuggestions) setupAutocomplete(viaInput, viaSuggestions);
 
     // --- Load Presets ---
     async function loadPresets() {
@@ -837,6 +842,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 chip.title = `${p.category}: ${p.description}`;
                 chip.addEventListener("click", () => {
                     startInput.value = p.start;
+                    if (viaInput) viaInput.value = "";
                     targetInput.value = p.target;
                 });
                 presetsContainer.appendChild(chip);
@@ -874,6 +880,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // Hide autocomplete suggestions if open
             if (startSuggestions) startSuggestions.classList.add("d-none");
             if (targetSuggestions) targetSuggestions.classList.add("d-none");
+            if (viaInput) viaInput.value = "";
 
             try {
                 const res = await fetch(`/api/random?lang=${encodeURIComponent(randLang)}`);
@@ -1012,11 +1019,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const start = startInput.value.trim();
         const target = targetInput.value.trim();
+        const via = viaInput ? viaInput.value.trim() : "";
 
         if (!start || !target) return;
 
         currentCrawlParams = {
             start: start,
+            via: via,
             target: target,
             lang: appSettings.lang || "en",
             algorithm: appSettings.algorithm,
@@ -1030,6 +1039,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const payload = {
             action: "start",
             start: start,
+            via: via,
             target: target,
             lang: appSettings.lang || "en",
             algorithm: appSettings.algorithm,
@@ -1288,7 +1298,9 @@ document.addEventListener("DOMContentLoaded", () => {
             node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
             
             let icon = isStart ? '<i class="bi bi-geo-alt-fill"></i>' : isTarget ? '<i class="bi bi-flag-fill"></i>' : '<i class="bi bi-link-45deg"></i>';
-            let label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : `Hop ${index}`;
+            const isVia = !isStart && !isTarget && data.via_index === index;
+            let label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : isVia ? `Via · Hop ${index}` : `Hop ${index}`;
+            if (isVia) node.classList.add("border", "border-warning");
 
             node.innerHTML = `
                 ${icon}
@@ -1310,7 +1322,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Render Intermediate Links Used & Algorithmic Rationale
         renderIntermediateSteps(data.intermediate_steps, data.assessments);
 
-        renderPathCarousel(data.path);
+        renderPathCarousel(data.path, data.via_index);
 
         // Render Context Section (150 words before and after)
         const ctx = data.link_context;
@@ -1335,7 +1347,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- Final Path Screenshot Carousel ---
     let pathScreenshotCache = {};
     let pathCarouselToken = 0;
-    function renderPathCarousel(path) {
+    function renderPathCarousel(path, viaIndex) {
         const card = document.getElementById("pathCarouselCard");
         const track = document.getElementById("pathCarouselTrack");
         const countBadge = document.getElementById("pathCarouselCount");
@@ -1363,7 +1375,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const slides = [];
         items.forEach(({ title, index, page }) => {
             const last = index === path.length - 1;
-            const label = index === 0 ? "Start" : last ? "Target" : `Hop ${index}`;
+            const label = index === 0 ? "Start" : last ? "Target" : (viaIndex === index ? `Via · Hop ${index}` : `Hop ${index}`);
             const el = document.createElement("div");
             el.className = "path-carousel-item";
             const fillImage = (shot) => {
@@ -1764,6 +1776,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             startInput.disabled = true;
             targetInput.disabled = true;
+            if (viaInput) viaInput.disabled = true;
             swapBtn.disabled = true;
         } else {
             startBtn.classList.remove("d-none");
@@ -1775,6 +1788,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             startInput.disabled = false;
             targetInput.disabled = false;
+            if (viaInput) viaInput.disabled = false;
             swapBtn.disabled = false;
         }
     }

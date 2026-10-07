@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 
 from crawler import (
     WikipediaCrawler,
+    ViaCrawler,
     get_wikipedia_info,
     fetch_article_assessments,
     fetch_random_article_pair,
@@ -408,9 +409,8 @@ async def websocket_search(websocket: WebSocket):
         use_embeddings = bool(params.get("use_embeddings", True))
         adaptive_balancing = bool(params.get("adaptive_balancing", True))
 
-        current_crawler = WikipediaCrawler(
-            start_input=start,
-            target_input=target,
+        via = (params.get("via") or "").strip()
+        crawler_kwargs = dict(
             algorithm=algorithm,
             max_pages=max_pages,
             max_depth=max_depth,
@@ -421,6 +421,10 @@ async def websocket_search(websocket: WebSocket):
             use_embeddings=use_embeddings,
             adaptive_balancing=adaptive_balancing,
         )
+        if via:
+            current_crawler = ViaCrawler(start_input=start, via_input=via, target_input=target, **crawler_kwargs)
+        else:
+            current_crawler = WikipediaCrawler(start_input=start, target_input=target, **crawler_kwargs)
 
         try:
             async for event in current_crawler.search():

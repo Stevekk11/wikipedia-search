@@ -36,10 +36,11 @@ from .extractor import (
     extract_target_link_context,
     get_page_backlinks,
 )
-from .engine import WikipediaCrawler
+from .engine import ViaCrawler, WikipediaCrawler
 
 __all__ = [
     "WikipediaCrawler",
+    "ViaCrawler",
     "get_wikipedia_info",
     "normalize_slug_or_title",
     "fetch_random_article_pair",

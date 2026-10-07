@@ -162,6 +162,26 @@
 
                     </div>
 
+                    <!-- Optional "Must Go Through" Input -->
+                    <div class="row g-3 mt-0">
+                        <div class="col-lg-6 col-md-12 offset-lg-3">
+                            <label for="viaInput" class="form-label fw-semibold text-secondary small text-uppercase mb-1">
+                                <i class="bi bi-signpost-split-fill text-warning me-1"></i> Must Go Through <span class="text-muted text-lowercase fw-normal">(optional)</span>
+                            </label>
+                            <div class="input-group position-relative">
+                                <span class="input-group-text bg-body border-end-0">
+                                    <i class="bi bi-pin-map text-muted"></i>
+                                </span>
+                                <input type="text" class="form-control bg-body border-start-0 ps-1" id="viaInput"
+                                       placeholder="Leave empty for the shortest path">
+                                <button class="btn btn-outline-secondary border-start-0 clear-btn" type="button" data-target="viaInput">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                                <div class="autocomplete-dropdown list-group shadow-lg position-absolute w-100 d-none" id="viaSuggestions"></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Presets & Quick Select Chips -->
                     <div class="mt-3 pt-2 d-flex flex-wrap align-items-center gap-2">
                         <span class="text-secondary small fw-semibold me-1"><i class="bi bi-lightning-charge-fill text-warning"></i> Presets:</span>

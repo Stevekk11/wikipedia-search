@@ -889,3 +889,125 @@ class WikipediaCrawler:
                     await browser.close()
                 except Exception as close_err:
                     logger.debug(f"Browser close cleanup: {close_err}")
+
+
+class ViaCrawler:
+    """
+    Finds a path Start -> Via -> Target by running two bidirectional searches
+    (Start -> Via, then Via -> Target) and stitching the results together.
+    Exposes the same ``search()`` / ``cancel()`` interface as ``WikipediaCrawler``.
+    ``max_pages`` / ``max_depth`` apply to each leg.
+    """
+
+    def __init__(self, start_input: str, via_input: str, target_input: str, **kwargs: Any):
+        self.start_input = start_input
+        self.via_input = via_input
+        self.target_input = target_input
+        self.kwargs = kwargs
+        self.lang = (kwargs.get("lang") or "en").strip().lower()
+        self.cancel_requested = False
+        self._current: Optional[WikipediaCrawler] = None
+
+    def cancel(self):
+        self.cancel_requested = True
+        if self._current:
+            self._current.cancel()
+
+    async def search(self) -> AsyncGenerator[Dict, None]:
+        via_info = get_wikipedia_info(self.via_input, lang=self.lang)
+        start_info = get_wikipedia_info(self.start_input, lang=self.lang)
+        target_info = get_wikipedia_info(self.target_input, lang=self.lang)
+        if not via_info["slug"] or not start_info["slug"] or not target_info["slug"]:
+            yield {"event": "error", "message": "Invalid start, via or target page provided."}
+            return
+
+        legs = [
+            (self.start_input, self.via_input),
+            (self.via_input, self.target_input),
+        ]
+        results: List[Dict] = []
+        pages_offset = fwd_offset = bwd_offset = 0
+        all_pages: List[Dict] = []
+
+        for leg_no, (leg_start, leg_target) in enumerate(legs, start=1):
+            if self.cancel_requested:
+                yield {"event": "cancelled", "message": "Search stopped by user.",
+                       "total_visited": pages_offset, "forward_visited_count": fwd_offset,
+                       "backward_visited_count": bwd_offset, "intermediate_pages": all_pages}
+                return
+            logger.info(f"Via search leg {leg_no}/2: '{leg_start}' -> '{leg_target}'")
+            crawler = WikipediaCrawler(start_input=leg_start, target_input=leg_target, **self.kwargs)
+            self._current = crawler
+            if self.cancel_requested:
+                crawler.cancel()
+            leg_result: Optional[Dict] = None
+
+            async for event in crawler.search():
+                etype = event.get("event")
+                if etype == "started":
+                    if leg_no == 1:
+                        event["via"] = via_info
+                        event["target"] = target_info
+                        event["message"] = f"Leg 1/2: {start_info['title']} → {via_info['title']}"
+                        yield event
+                    continue
+                if etype == "visiting":
+                    page = event["page"]
+                    page["step"] = pages_offset + page.get("step", 0)
+                    page["leg"] = leg_no
+                    event["total_visited"] = pages_offset + event["total_visited"]
+                    event["forward_visited_count"] += fwd_offset
+                    event["backward_visited_count"] += bwd_offset
+                    all_pages.append(page)
+                    yield event
+                    continue
+                if etype == "found":
+                    leg_result = event
+                    break
+                # not_found / cancelled / error: report cumulatively and stop
+                event["total_visited"] = pages_offset + event.get("total_visited", 0)
+                event["forward_visited_count"] = fwd_offset + event.get("forward_visited_count", 0)
+                event["backward_visited_count"] = bwd_offset + event.get("backward_visited_count", 0)
+                if etype == "not_found":
+                    event["message"] = (
+                        f"Leg {leg_no}/2 ({leg_start} → {leg_target}) did not connect within the limits. "
+                        f"{event.get('message', '')}"
+                    )
+                yield event
+                return
+
+            if leg_result is None:
+                yield {"event": "error", "message": f"Leg {leg_no} ended without a result."}
+                return
+            results.append(leg_result)
+            pages_offset += leg_result["total_visited"]
+            fwd_offset += leg_result["forward_visited_count"]
+            bwd_offset += leg_result["backward_visited_count"]
+
+        a, b = results
+        path = a["path"] + b["path"][1:]
+        steps = [dict(s) for s in a["intermediate_steps"]] + [dict(s) for s in b["intermediate_steps"]]
+        for idx, s in enumerate(steps):
+            s["hop"] = idx + 1
+        hops = len(path) - 1
+        yield {
+            "event": "found",
+            "hops": hops,
+            "path": path,
+            "slugs": a["slugs"] + b["slugs"][1:],
+            "urls": a["urls"] + b["urls"][1:],
+            "assessments": fetch_article_assessments(path, lang=self.lang),
+            "total_visited": pages_offset,
+            "forward_visited_count": fwd_offset,
+            "backward_visited_count": bwd_offset,
+            "intermediate_pages": all_pages,
+            "intermediate_steps": steps,
+            "found_on_page": b.get("found_on_page"),
+            "link_context": b.get("link_context"),
+            "via": via_info["title"],
+            "via_index": len(a["path"]) - 1,
+            "message": (
+                f"Path found through \"{via_info['title']}\": {hops} hops "
+                f"({len(a['path']) - 1} to the via article + {len(b['path']) - 1} from it)."
+            ),
+        }
