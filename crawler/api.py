@@ -402,8 +402,11 @@ def fetch_random_article_title(lang: str = "en") -> str:
 
 def fetch_random_article_pair(lang: str = "en") -> tuple[str, str]:
     """
-    Fetch two distinct random article titles using Special:Random from English Wikipedia.
+    Fetch two distinct random article titles using Special:Random from the given Wikipedia edition.
+    Special:Random exists on every edition, so this works for all languages. English-only
+    placeholder fallbacks are used only for ``en``; other editions raise if nothing could be fetched.
     """
+    lang = (lang or "en").strip().lower()
     titles: List[str] = []
     seen: Set[str] = set()
 
@@ -417,9 +420,10 @@ def fetch_random_article_pair(lang: str = "en") -> tuple[str, str]:
 
     if len(titles) == 2:
         return titles[0], titles[1]
-    elif len(titles) == 1:
+    if lang != "en":
+        raise RuntimeError(f"Could not fetch two random articles from {lang}.wikipedia.org")
+    if len(titles) == 1:
         fallback = "Philosophy" if titles[0].lower() != "philosophy" else "Science"
         return titles[0], fallback
-    else:
-        return "London", "New York City"
+    return "London", "New York City"
 

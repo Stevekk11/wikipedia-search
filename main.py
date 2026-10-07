@@ -135,12 +135,15 @@ async def get_article_assessments(
 
 
 @app.get("/api/random")
-async def get_random_articles():
+async def get_random_articles(lang: str = Query("en")):
     """
-    Fetch two random articles from English Wikipedia using Special:Random.
+    Fetch two random articles from the given Wikipedia edition using Special:Random.
     """
+    lang = (lang or "en").strip().lower()
+    if not re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})*", lang):
+        return JSONResponse({"error": "Invalid language code"}, status_code=400)
     try:
-        start_title, target_title = await asyncio.to_thread(fetch_random_article_pair, "en")
+        start_title, target_title = await asyncio.to_thread(fetch_random_article_pair, lang)
         return JSONResponse({
             "articles": [start_title, target_title],
             "start": start_title,
@@ -148,7 +151,7 @@ async def get_random_articles():
         })
     except Exception as e:
         logger.error(f"Error fetching random articles: {e}")
-        return JSONResponse({"error": "Failed to fetch random articles from English Wikipedia"}, status_code=500)
+        return JSONResponse({"error": f"Failed to fetch random articles from {lang}.wikipedia.org"}, status_code=500)
 
 
 @app.get("/api/presets")

@@ -268,18 +268,27 @@ document.addEventListener("DOMContentLoaded", () => {
         summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Bidirectional Smart A*" : "Bidirectional BFS"}`;
         summaryLimitBadge.innerHTML = `<i class="bi bi-speedometer2 me-1"></i> Max ${appSettings.maxPages} Pages`;
 
-        // Update Random Button state (only active for English Wikipedia)
+        // On/off toggle badges (green = on, grey = off)
+        const toggleBadges = [
+            ["summaryScreenshotsBadge", "bi-camera", "Screenshots", appSettings.captureScreenshots],
+            ["summaryEmbeddingsBadge", "bi-diagram-3", "Embeddings", appSettings.useEmbeddings !== false],
+            ["summaryBalancingBadge", "bi-sliders2", "Adaptive Balancing", appSettings.adaptiveBalancing !== false],
+            ["summaryHeadlessBadge", "bi-window", "Headless", !!appSettings.headless],
+        ];
+        toggleBadges.forEach(([id, icon, label, on]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = `badge ${on ? "text-bg-success" : "text-bg-secondary"}`;
+            el.innerHTML = `<i class="bi ${icon} me-1"></i> ${label}: ${on ? "On" : "Off"}`;
+        });
+
+        // Update Random Button state (works for every Wikipedia edition via Special:Random)
         if (randomBtn) {
-            const isEn = (appSettings.lang || "en").toLowerCase() === "en";
             const isRunning = startBtn && startBtn.classList.contains("d-none");
-            if (!isEn) {
-                randomBtn.disabled = true;
-                randomBtn.classList.add("disabled", "opacity-50");
-                randomBtn.title = "Random articles are only available for the English Wikipedia";
-            } else if (!isRunning) {
+            randomBtn.title = `Select two random articles (${langCode}.wikipedia.org)`;
+            if (!isRunning) {
                 randomBtn.disabled = false;
                 randomBtn.classList.remove("disabled", "opacity-50");
-                randomBtn.title = "Select two random articles (English Wikipedia)";
             }
         }
     }
@@ -329,28 +338,82 @@ document.addEventListener("DOMContentLoaded", () => {
     loadSavedSettings();
 
     // --- History Handling (Last 10 Searches) ---
-    function loadSearchHistory() {
+    // History is stored in IndexedDB (localStorage's ~5MB quota was too small for
+    // screenshots, and the old quota fallback permanently stripped older entries).
+    const HISTORY_DB_NAME = "wikihop-db";
+    const HISTORY_STORE = "kv";
+    let historyDbPromise = null;
+
+    function openHistoryDb() {
+        if (!historyDbPromise) {
+            historyDbPromise = new Promise((resolve, reject) => {
+                if (!window.indexedDB) return reject(new Error("IndexedDB unavailable"));
+                const req = indexedDB.open(HISTORY_DB_NAME, 1);
+                req.onupgradeneeded = () => req.result.createObjectStore(HISTORY_STORE);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+        return historyDbPromise;
+    }
+
+    function historyDbGet() {
+        return openHistoryDb().then(db => new Promise((resolve, reject) => {
+            const req = db.transaction(HISTORY_STORE, "readonly").objectStore(HISTORY_STORE).get(STORAGE_KEY_HISTORY);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        }));
+    }
+
+    function historyDbSet(value) {
+        return openHistoryDb().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(HISTORY_STORE, "readwrite");
+            tx.objectStore(HISTORY_STORE).put(value, STORAGE_KEY_HISTORY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+        }));
+    }
+
+    function readLegacyLocalHistory() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
-                    searchHistory = parsed;
-                }
-            }
+            const parsed = raw ? JSON.parse(raw) : null;
+            return Array.isArray(parsed) ? parsed : [];
         } catch (e) {
             console.error("Error reading search history from localStorage:", e);
-            searchHistory = [];
+            return [];
         }
+    }
+
+    async function loadSearchHistory() {
+        let loaded = null;
+        try {
+            const stored = await historyDbGet();
+            if (Array.isArray(stored)) loaded = stored;
+        } catch (e) {
+            console.warn("IndexedDB history unavailable, using localStorage:", e);
+        }
+        if (loaded === null || loaded.length === 0) {
+            // Migrate / fall back to legacy localStorage history
+            const legacy = readLegacyLocalHistory();
+            if (legacy.length) {
+                loaded = legacy;
+                historyDbSet(legacy).then(() => localStorage.removeItem(STORAGE_KEY_HISTORY)).catch(() => {});
+            }
+        }
+        // Keep any record saved while loading was still in progress
+        const pending = searchHistory.filter(r => !(loaded || []).some(l => l.id === r.id));
+        searchHistory = [...pending, ...(loaded || [])].slice(0, MAX_HISTORY_ITEMS);
         renderHistoryList();
     }
 
-    function saveHistoryToStorage() {
+    function saveHistoryToLocalStorage() {
         try {
             localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(searchHistory));
         } catch (e) {
             console.warn("Storage quota warning, stripping screenshots to preserve metadata:", e);
-            // 1st Fallback: Keep screenshots on newest item only
+            // Keep screenshots on newest item only
             const pruned = searchHistory.map((item, idx) => {
                 if (idx > 0 && Array.isArray(item.visited_pages)) {
                     return {
@@ -363,29 +426,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 return item;
             });
-
             try {
                 localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(pruned));
-                searchHistory = pruned;
             } catch (e2) {
-                // 2nd Fallback: Strip screenshots entirely to fit text metadata
-                const stripped = searchHistory.map(item => ({
-                    ...item,
-                    visited_pages: Array.isArray(item.visited_pages)
-                        ? item.visited_pages.map(p => {
-                            const { screenshot, ...rest } = p;
-                            return rest;
-                        })
-                        : []
-                }));
-                try {
-                    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(stripped));
-                    searchHistory = stripped;
-                } catch (e3) {
-                    console.error("Failed to store search history:", e3);
-                }
+                console.error("Failed to store search history:", e2);
             }
         }
+    }
+
+    function saveHistoryToStorage() {
+        // Structured clone keeps everything (including screenshots) intact.
+        historyDbSet(searchHistory).catch(e => {
+            console.warn("IndexedDB save failed, falling back to localStorage:", e);
+            saveHistoryToLocalStorage();
+        });
     }
 
     function saveCurrentSearchToHistory(status, extraData = {}) {
@@ -653,6 +707,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 searchHistory = [];
                 activeHistoryId = null;
                 localStorage.removeItem(STORAGE_KEY_HISTORY);
+                historyDbSet([]);
                 renderHistoryList();
             }
         });
@@ -807,8 +862,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- Random Button (English Wikipedia Special:Random) ---
     if (randomBtn) {
         randomBtn.addEventListener("click", async () => {
-            const isEn = (appSettings.lang || "en").toLowerCase() === "en";
-            if (!isEn) return;
+            const randLang = (appSettings.lang || "en").toLowerCase();
 
             const origHtml = randomBtn.innerHTML;
             randomBtn.disabled = true;
@@ -820,7 +874,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (targetSuggestions) targetSuggestions.classList.add("d-none");
 
             try {
-                const res = await fetch("/api/random");
+                const res = await fetch(`/api/random?lang=${encodeURIComponent(randLang)}`);
                 if (!res.ok) {
                     throw new Error(`Server returned status ${res.status}`);
                 }
@@ -837,12 +891,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             } catch (err) {
                 console.error("Error fetching random articles:", err);
-                showAlert("Failed to select random articles from English Wikipedia. Please try again.");
+                showAlert(`Failed to select random articles from ${randLang}.wikipedia.org. Please try again.`);
             } finally {
-                const currentIsEn = (appSettings.lang || "en").toLowerCase() === "en";
                 const isRunning = startBtn && startBtn.classList.contains("d-none");
                 randomBtn.innerHTML = origHtml;
-                if (currentIsEn && !isRunning) {
+                if (!isRunning) {
                     randomBtn.disabled = false;
                     randomBtn.classList.remove("disabled", "opacity-75", "opacity-50");
                 } else {
@@ -1607,16 +1660,9 @@ document.addEventListener("DOMContentLoaded", () => {
             startBtn.classList.remove("d-none");
             stopBtn.classList.add("d-none");
             if (randomBtn) {
-                const isEn = (appSettings.lang || "en").toLowerCase() === "en";
-                if (isEn) {
-                    randomBtn.disabled = false;
-                    randomBtn.classList.remove("disabled", "opacity-50");
-                    randomBtn.title = "Select two random articles (English Wikipedia)";
-                } else {
-                    randomBtn.disabled = true;
-                    randomBtn.classList.add("disabled", "opacity-50");
-                    randomBtn.title = "Random articles are only available for the English Wikipedia";
-                }
+                randomBtn.disabled = false;
+                randomBtn.classList.remove("disabled", "opacity-50");
+                randomBtn.title = `Select two random articles (${(appSettings.lang || "en").toLowerCase()}.wikipedia.org)`;
             }
             startInput.disabled = false;
             targetInput.disabled = false;
