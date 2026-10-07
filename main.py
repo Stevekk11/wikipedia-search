@@ -134,6 +134,28 @@ async def get_article_assessments(
         return JSONResponse({}, status_code=500)
 
 
+_screenshot_semaphore = asyncio.Semaphore(2)
+
+
+@app.get("/api/screenshot")
+async def get_page_screenshot(title: str = Query(..., min_length=1, max_length=300), lang: str = Query("en")):
+    """
+    Re-create a Playwright screenshot for a single article (used when the
+    final-path carousel is missing one).
+    """
+    lang = (lang or "en").strip().lower()
+    if not re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})*", lang):
+        return JSONResponse({"error": "Invalid language code"}, status_code=400)
+    from crawler.browser import capture_page_screenshot
+    try:
+        async with _screenshot_semaphore:
+            shot = await asyncio.wait_for(capture_page_screenshot(lang, title), timeout=45)
+        return JSONResponse({"title": title, "screenshot": shot})
+    except Exception as e:
+        logger.error(f"Screenshot re-capture failed for '{title}' ({lang}): {e}")
+        return JSONResponse({"error": "Failed to capture screenshot"}, status_code=500)
+
+
 @app.get("/api/random")
 async def get_random_articles(lang: str = Query("en")):
     """

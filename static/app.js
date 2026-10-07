@@ -667,6 +667,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Restore result card or alert card
         if (item.status === "found" && item.result_data) {
             alertCard.classList.add("d-none");
+            pathScreenshotCache = { ...(item.path_screenshots || {}) };
             currentFoundPath = item.result_data.path || [];
             currentLinkContext = item.result_data.link_context || null;
             showResultCard(item.result_data);
@@ -1140,6 +1141,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             currentFoundPath = data.path;
             currentLinkContext = data.link_context;
+            pathScreenshotCache = {};
             showResultCard(data);
             saveCurrentSearchToHistory("found", data);
 
@@ -1331,6 +1333,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- Final Path Screenshot Carousel ---
+    let pathScreenshotCache = {};
+    let pathCarouselToken = 0;
     function renderPathCarousel(path) {
         const card = document.getElementById("pathCarouselCard");
         const track = document.getElementById("pathCarouselTrack");
@@ -1345,25 +1349,36 @@ document.addEventListener("DOMContentLoaded", () => {
             if (p.screenshot && !shots[key]) shots[key] = p;
         });
 
-        const items = (path || []).map((title, index) => ({ title, index, page: shots[norm(title)] }));
-        if (!items.some(i => i.page)) {
+        // Screenshots regenerated earlier for this path (persisted in history)
+        const extra = pathScreenshotCache;
+        const items = (path || []).map((title, index) => {
+            const page = shots[norm(title)] || (extra[norm(title)] ? { screenshot: extra[norm(title)] } : null);
+            return { title, index, page };
+        });
+        if (!items.length) {
             card.classList.add("d-none");
             return;
         }
 
+        const slides = [];
         items.forEach(({ title, index, page }) => {
             const last = index === path.length - 1;
             const label = index === 0 ? "Start" : last ? "Target" : `Hop ${index}`;
             const el = document.createElement("div");
             el.className = "path-carousel-item";
-            if (page) {
+            const fillImage = (shot) => {
+                el.querySelector(".path-carousel-empty, img")?.remove();
                 const img = document.createElement("img");
-                img.src = page.screenshot;
+                img.src = shot;
                 img.alt = `Screenshot of ${title}`;
-                img.addEventListener("click", () => openScreenshotModal(title, page.screenshot));
-                el.appendChild(img);
+                img.addEventListener("click", () => openScreenshotModal(title, shot));
+                el.prepend(img);
+            };
+            if (page) {
+                fillImage(page.screenshot);
             } else {
-                el.insertAdjacentHTML("beforeend", `<div class="path-carousel-empty"><i class="bi bi-image fs-1"></i></div>`);
+                el.insertAdjacentHTML("beforeend", `<div class="path-carousel-empty"><span class="spinner-border text-secondary" role="status"></span></div>`);
+                slides.push({ title, el, fillImage });
             }
             el.insertAdjacentHTML("beforeend", `
                 <div class="path-carousel-caption">
@@ -1376,6 +1391,35 @@ document.addEventListener("DOMContentLoaded", () => {
         countBadge.textContent = items.length;
         card.classList.remove("d-none");
         track.scrollLeft = 0;
+
+        // Re-create any missing screenshots one at a time
+        const token = ++pathCarouselToken;
+        const lang = appSettings.lang || "en";
+        (async () => {
+            for (const s of slides) {
+                if (token !== pathCarouselToken) return; // a newer render superseded this one
+                try {
+                    const res = await fetch(`/api/screenshot?lang=${encodeURIComponent(lang)}&title=${encodeURIComponent(s.title)}`);
+                    if (!res.ok) throw new Error(`status ${res.status}`);
+                    const data = await res.json();
+                    if (!data.screenshot) throw new Error("empty screenshot");
+                    pathScreenshotCache[norm(s.title)] = data.screenshot;
+                    s.fillImage(data.screenshot);
+                    persistPathScreenshots();
+                } catch (err) {
+                    console.warn("Could not re-create screenshot for", s.title, err);
+                    s.el.querySelector(".path-carousel-empty").innerHTML = `<i class="bi bi-image fs-1" title="Screenshot unavailable"></i>`;
+                }
+            }
+        })();
+    }
+
+    function persistPathScreenshots() {
+        const item = searchHistory.find(h => h.id === activeHistoryId);
+        if (item) {
+            item.path_screenshots = { ...pathScreenshotCache };
+            saveHistoryToStorage();
+        }
     }
 
     (function initPathCarouselControls() {
