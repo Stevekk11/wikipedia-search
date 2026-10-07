@@ -13,3 +13,4 @@ htmlcov/
 Thumbs.db
 *.tmp
 *.pem
+Logs/

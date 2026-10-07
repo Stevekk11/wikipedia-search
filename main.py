@@ -33,7 +33,9 @@ from crawler import (
     fetch_random_article_pair,
 )
 
-logging.basicConfig(level=logging.INFO)
+from logging_config import setup_logging
+
+setup_logging(logging.INFO)
 logger = logging.getLogger("wikipedia_app")
 
 app = FastAPI(

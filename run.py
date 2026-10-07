@@ -40,7 +40,7 @@ def get_or_create_ssl_cert(cert_file: str = "cert.pem", key_file: str = "key.pem
         san = x509.SubjectAlternativeName([
             x509.DNSName("localhost"),
             x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-            x509.IPAddress(ipaddress.IPv4Address("10.0.3.67")),
+            x509.IPAddress(ipaddress.IPv4Address("10.0.3.77")),
         ])
 
         cert = (
