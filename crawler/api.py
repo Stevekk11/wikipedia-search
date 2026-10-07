@@ -372,6 +372,25 @@ def fetch_random_article_title(lang: str = "en") -> str:
     """
     lang = (lang or "en").strip().lower()
     headers = {"User-Agent": DEFAULT_REST_USER_AGENT}
+
+    # Preferred: MediaWiki API (language-independent; main namespace only).
+    # Special:Random is localized on many editions (e.g. "Spécial:Aléatoire"), so
+    # redirect parsing is unreliable there.
+    try:
+        r = requests.get(
+            f"https://{lang}.wikipedia.org/w/api.php",
+            params={
+                "action": "query", "list": "random", "rnnamespace": 0,
+                "rnlimit": 1, "format": "json",
+            },
+            headers=headers, timeout=5,
+        )
+        items = r.json().get("query", {}).get("random", [])
+        if items and items[0].get("title"):
+            return items[0]["title"]
+    except Exception as e:
+        logger.debug(f"Random API query for {lang} failed: {e}")
+
     url = f"https://{lang}.wikipedia.org/wiki/Special:Random"
 
     try:
