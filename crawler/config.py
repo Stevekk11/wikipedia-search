@@ -16,6 +16,7 @@ DISALLOWED_PREFIXES: List[str] = [
     "User:",
     "User_talk:",
     "Wikipedia:",
+    "Wikipedie",
     "Wikipedia_talk:",
     "File:",
     "File_talk:",
