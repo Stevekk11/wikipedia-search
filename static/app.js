@@ -683,6 +683,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         } else {
             resultCard.classList.add("d-none");
+            { const pc = document.getElementById("pathCarouselCard"); if (pc) pc.classList.add("d-none"); }
             if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
             if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
             contextCard.classList.add("d-none");
@@ -1307,6 +1308,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // Render Intermediate Links Used & Algorithmic Rationale
         renderIntermediateSteps(data.intermediate_steps, data.assessments);
 
+        renderPathCarousel(data.path);
+
         // Render Context Section (150 words before and after)
         const ctx = data.link_context;
         if (ctx && (ctx.words_before || ctx.words_after || ctx.anchor_text)) {
@@ -1326,6 +1329,68 @@ document.addEventListener("DOMContentLoaded", () => {
             contextCard.classList.add("d-none");
         }
     }
+
+    // --- Final Path Screenshot Carousel ---
+    function renderPathCarousel(path) {
+        const card = document.getElementById("pathCarouselCard");
+        const track = document.getElementById("pathCarouselTrack");
+        const countBadge = document.getElementById("pathCarouselCount");
+        if (!card || !track) return;
+        track.innerHTML = "";
+
+        const norm = (t) => (t || "").replace(/_/g, " ").trim().toLowerCase();
+        const shots = {};
+        visitedPagesList.forEach(p => {
+            const key = norm(p.title);
+            if (p.screenshot && !shots[key]) shots[key] = p;
+        });
+
+        const items = (path || []).map((title, index) => ({ title, index, page: shots[norm(title)] }));
+        if (!items.some(i => i.page)) {
+            card.classList.add("d-none");
+            return;
+        }
+
+        items.forEach(({ title, index, page }) => {
+            const last = index === path.length - 1;
+            const label = index === 0 ? "Start" : last ? "Target" : `Hop ${index}`;
+            const el = document.createElement("div");
+            el.className = "path-carousel-item";
+            if (page) {
+                const img = document.createElement("img");
+                img.src = page.screenshot;
+                img.alt = `Screenshot of ${title}`;
+                img.addEventListener("click", () => openScreenshotModal(title, page.screenshot));
+                el.appendChild(img);
+            } else {
+                el.insertAdjacentHTML("beforeend", `<div class="path-carousel-empty"><i class="bi bi-image fs-1"></i></div>`);
+            }
+            el.insertAdjacentHTML("beforeend", `
+                <div class="path-carousel-caption">
+                    <div class="text-secondary text-uppercase" style="font-size: 0.7rem;">${label}</div>
+                    <div class="fw-semibold text-truncate" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                </div>`);
+            track.appendChild(el);
+        });
+
+        countBadge.textContent = items.length;
+        card.classList.remove("d-none");
+        track.scrollLeft = 0;
+    }
+
+    (function initPathCarouselControls() {
+        const track = document.getElementById("pathCarouselTrack");
+        const prev = document.getElementById("pathCarouselPrev");
+        const next = document.getElementById("pathCarouselNext");
+        if (!track || !prev || !next) return;
+        const step = () => Math.max(track.clientWidth * 0.8, 200);
+        prev.addEventListener("click", () => track.scrollBy({ left: -step(), behavior: "smooth" }));
+        next.addEventListener("click", () => track.scrollBy({ left: step(), behavior: "smooth" }));
+        track.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowLeft") { e.preventDefault(); prev.click(); }
+            if (e.key === "ArrowRight") { e.preventDefault(); next.click(); }
+        });
+    })();
 
     // --- Render Intermediate Links Used & Algorithmic Rationale ---
     function renderIntermediateSteps(steps, assessments = null) {
@@ -1686,6 +1751,7 @@ document.addEventListener("DOMContentLoaded", () => {
         kpiStatusBadge.textContent = "Initializing...";
 
         resultCard.classList.add("d-none");
+        { const pc = document.getElementById("pathCarouselCard"); if (pc) pc.classList.add("d-none"); }
         if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
         if (liveDirectionBadge) {
             liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
