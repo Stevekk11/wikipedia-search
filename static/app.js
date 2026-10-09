@@ -692,7 +692,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const vInfo = item.via_info || (item.via ? { title: item.via } : null);
                 resetForceGraph(sInfo, tInfo, vInfo);
                 (visitedPagesList || []).forEach(p => recordPageInGraph(p, p.direction));
-                highlightFinalPathInGraph(currentFoundPath);
+                highlightFinalPathInGraph(currentFoundPath, true);
             }
 
             if (!item.result_data.assessments && currentFoundPath.length > 0) {
@@ -1441,6 +1441,14 @@ document.addEventListener("DOMContentLoaded", () => {
     let graphStartId = null;
     let graphTargetId = null;
     let graphViaId = null;
+    let graphPathEmergenceTimers = [];
+
+    function clearGraphPathTimers() {
+        if (graphPathEmergenceTimers && graphPathEmergenceTimers.length) {
+            graphPathEmergenceTimers.forEach(t => clearTimeout(t));
+            graphPathEmergenceTimers = [];
+        }
+    }
 
     function initForceGraph() {
         if (!forceGraphSvg || typeof d3 === "undefined") return;
@@ -1541,6 +1549,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function resetForceGraph(startInfo, targetInfo, viaInfo) {
+        clearGraphPathTimers();
         graphData = { nodes: [], links: [] };
         graphNodesMap.clear();
         graphLinksSet.clear();
@@ -1693,40 +1702,13 @@ document.addEventListener("DOMContentLoaded", () => {
         updateGraphD3Elements();
     }
 
-    function highlightFinalPathInGraph(pathTitles) {
+    function highlightFinalPathInGraph(pathTitles, immediate = false) {
         if (!pathTitles || pathTitles.length < 2) return;
         if (typeof d3 === "undefined") return;
 
+        clearGraphPathTimers();
         graphFinalPathSet = new Set(pathTitles);
         if (graphPathLegend) graphPathLegend.classList.remove("d-none");
-
-        // 1. Ensure all path nodes and links are present in graph structures
-        for (let i = 0; i < pathTitles.length; i++) {
-            const title = pathTitles[i];
-            const isStart = i === 0;
-            const isTarget = i === pathTitles.length - 1;
-            const isVia = title === graphViaId;
-            const node = addGraphNode({
-                id: title,
-                title: title,
-                type: isStart ? "start" : isTarget ? "target" : isVia ? "via" : "path",
-                depth: i
-            });
-            node.isFinalPath = true;
-
-            if (i < pathTitles.length - 1) {
-                const next = pathTitles[i + 1];
-                const nextIsTarget = (i + 1 === pathTitles.length - 1);
-                const nextIsVia = next === graphViaId;
-                addGraphNode({
-                    id: next,
-                    title: next,
-                    type: nextIsTarget ? "target" : nextIsVia ? "via" : "path",
-                    depth: i + 1
-                });
-                addGraphLink(title, next, "path", true);
-            }
-        }
 
         // Release pinned positions on Start, Target, and Via so they dynamically balance
         const startN = graphNodesMap.get(graphStartId);
@@ -1736,62 +1718,139 @@ document.addEventListener("DOMContentLoaded", () => {
         const viaN = graphNodesMap.get(graphViaId);
         if (viaN) viaN.fx = null;
 
-        updateGraphD3Elements();
-
-        // 2. Dim non-path nodes and links with a smooth transition
+        // Dim background exploration nodes and links immediately
         if (graphContainerGroup) {
             graphContainerGroup.selectAll("line.graph-link")
-                .classed("graph-link-dimmed", d => !d.isFinalPath);
+                .classed("graph-link-dimmed", true);
 
             graphContainerGroup.selectAll("g.graph-node")
                 .classed("graph-node-dimmed", d => !graphFinalPathSet.has(d.id));
         }
 
-        // 3. Staged ripple animation along the discovered chain
-        pathTitles.forEach((title, idx) => {
-            setTimeout(() => {
-                if (!graphContainerGroup) return;
+        if (immediate) {
+            // Instant render for history restoration
+            for (let i = 0; i < pathTitles.length; i++) {
+                const title = pathTitles[i];
+                const isStart = i === 0;
+                const isTarget = i === pathTitles.length - 1;
+                const isVia = title === graphViaId;
+                const node = addGraphNode({
+                    id: title,
+                    title: title,
+                    type: isStart ? "start" : isTarget ? "target" : isVia ? "via" : "path",
+                    depth: i
+                });
+                node.isFinalPath = true;
 
-                const nodeG = graphContainerGroup.selectAll("g.graph-node")
-                    .filter(d => d.id === title);
-
-                nodeG.select("circle")
-                    .transition()
-                    .duration(280)
-                    .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 22 : 18)
-                    .transition()
-                    .duration(350)
-                    .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 18 : 14);
-
-                // Highlight connecting link to next hop
-                if (idx < pathTitles.length - 1) {
-                    const nextTitle = pathTitles[idx + 1];
-                    graphContainerGroup.selectAll("line.graph-link")
-                        .filter(l => {
-                            const s = l.source.id || l.source;
-                            const t = l.target.id || l.target;
-                            return (s === title && t === nextTitle) || (s === nextTitle && t === title);
-                        })
-                        .classed("graph-link-highlight", true)
-                        .classed("graph-link-dimmed", false)
-                        .transition()
-                        .duration(300)
-                        .attr("stroke-width", 5)
-                        .transition()
-                        .duration(300)
-                        .attr("stroke-width", 3.8);
+                if (i < pathTitles.length - 1) {
+                    const next = pathTitles[i + 1];
+                    const nextIsTarget = (i + 1 === pathTitles.length - 1);
+                    const nextIsVia = next === graphViaId;
+                    addGraphNode({
+                        id: next,
+                        title: next,
+                        type: nextIsTarget ? "target" : nextIsVia ? "via" : "path",
+                        depth: i + 1
+                    });
+                    addGraphLink(title, next, "path", true);
                 }
-            }, idx * 160);
-        });
+            }
 
-        // 4. Smooth camera focus onto the discovered path bounding box
-        setTimeout(() => {
-            zoomToDiscoveredPath(pathTitles);
-        }, Math.min(pathTitles.length * 160 + 100, 1200));
-
-        if (graphSimulation) {
-            graphSimulation.alpha(0.65).restart();
+            updateGraphD3Elements();
+            if (graphContainerGroup) {
+                graphContainerGroup.selectAll("line.graph-link")
+                    .classed("graph-link-dimmed", d => !d.isFinalPath);
+            }
+            if (graphSimulation) {
+                graphSimulation.alpha(0.6).restart();
+            }
+            setTimeout(() => zoomToDiscoveredPath(pathTitles), 300);
+            return;
         }
+
+        // --- Progressive Emergence (600ms intervals per node) ---
+        const intervalMs = 600;
+
+        pathTitles.forEach((title, idx) => {
+            const timer = setTimeout(() => {
+                if (!forceGraphSvg || typeof d3 === "undefined") return;
+
+                const isStart = idx === 0;
+                const isTarget = idx === pathTitles.length - 1;
+                const isVia = title === graphViaId;
+
+                // 1. Reveal/Activate node
+                const node = addGraphNode({
+                    id: title,
+                    title: title,
+                    type: isStart ? "start" : isTarget ? "target" : isVia ? "via" : "path",
+                    depth: idx
+                });
+                node.isFinalPath = true;
+
+                // 2. Connect incoming link from previous node
+                if (idx > 0) {
+                    const prevTitle = pathTitles[idx - 1];
+                    addGraphLink(prevTitle, title, "path", true);
+                }
+
+                // 3. Update D3 elements and gently wake physics simulation
+                updateGraphD3Elements();
+
+                if (graphSimulation) {
+                    graphSimulation.alpha(0.35).restart();
+                }
+
+                // 4. Staged pop animation for the emerging node
+                if (graphContainerGroup) {
+                    const nodeG = graphContainerGroup.selectAll("g.graph-node")
+                        .filter(d => d.id === title);
+
+                    nodeG.classed("graph-node-dimmed", false);
+
+                    nodeG.select("circle")
+                        .attr("r", 0)
+                        .transition()
+                        .duration(320)
+                        .ease(d3.easeBackOut.overshoot(2.2))
+                        .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 23 : 19)
+                        .transition()
+                        .duration(280)
+                        .ease(d3.easeCubicOut)
+                        .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 17 : 14);
+
+                    // Animate newly created link from previous node
+                    if (idx > 0) {
+                        const prevTitle = pathTitles[idx - 1];
+                        const linkLine = graphContainerGroup.selectAll("line.graph-link")
+                            .filter(l => {
+                                const s = l.source.id || l.source;
+                                const t = l.target.id || l.target;
+                                return (s === prevTitle && t === title) || (s === title && t === prevTitle);
+                            });
+
+                        linkLine
+                            .classed("graph-link-highlight", true)
+                            .classed("graph-link-dimmed", false)
+                            .attr("stroke-width", 1)
+                            .transition()
+                            .duration(400)
+                            .attr("stroke-width", 4.2);
+                    }
+                }
+
+                // 5. When all nodes have emerged, focus the camera onto the complete path
+                if (idx === pathTitles.length - 1) {
+                    const finishTimer = setTimeout(() => {
+                        zoomToDiscoveredPath(pathTitles);
+                    }, 400);
+                    graphPathEmergenceTimers.push(finishTimer);
+                }
+
+            }, idx * intervalMs);
+
+            graphPathEmergenceTimers.push(timer);
+        });
     }
 
     function zoomToDiscoveredPath(pathTitles) {
@@ -2566,6 +2625,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (graphCard) graphCard.classList.add("d-none");
         if (graphEmptyState) graphEmptyState.classList.remove("d-none");
         if (graphSimulation) graphSimulation.stop();
+        clearGraphPathTimers();
     }
 
     // --- Timer ---
