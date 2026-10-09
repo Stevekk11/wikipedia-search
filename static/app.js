@@ -100,6 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const resultHopBadge = document.getElementById("resultHopBadge");
     const resultMeetingBadge = document.getElementById("resultMeetingBadge");
     const resultTitle = document.getElementById("resultTitle");
+    const hopChainContainer = document.getElementById("hopChainContainer");
     const hopChainWrapper = document.getElementById("hopChainWrapper");
     const resultSummaryText = document.getElementById("resultSummaryText");
     const copyPathBtn = document.getElementById("copyPathBtn");
@@ -1306,6 +1307,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Render Visual Hop Chain
         hopChainWrapper.innerHTML = "";
+        if (hopChainContainer) {
+            hopChainContainer.classList.remove("in-view");
+        }
         const langCode = appSettings.lang || "en";
         data.path.forEach((title, index) => {
             const isStart = index === 0;
@@ -1314,6 +1318,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const node = document.createElement("div");
             node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
+            node.style.setProperty("--node-idx", index);
             
             let icon = isStart ? '<i class="bi bi-geo-alt-fill"></i>' : isTarget ? '<i class="bi bi-flag-fill"></i>' : '<i class="bi bi-link-45deg"></i>';
             const isVia = !isStart && !isTarget && data.via_index === index;
@@ -1332,10 +1337,13 @@ document.addEventListener("DOMContentLoaded", () => {
             if (index < data.path.length - 1) {
                 const arrow = document.createElement("div");
                 arrow.className = "hop-arrow";
+                arrow.style.setProperty("--arrow-idx", index);
                 arrow.innerHTML = `<i class="bi bi-chevron-right"></i>`;
                 hopChainWrapper.appendChild(arrow);
             }
         });
+
+        triggerHopChainAnimation();
 
         // Render Intermediate Links Used & Algorithmic Rationale
         renderIntermediateSteps(data.intermediate_steps, data.assessments);
@@ -1361,6 +1369,36 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             contextCard.classList.add("d-none");
         }
+    }
+
+    // --- Hop Chain Scroll Animation ---
+    function triggerHopChainAnimation() {
+        if (!hopChainContainer) return;
+        hopChainContainer.classList.remove("in-view");
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!hopChainContainer) return;
+                const rect = hopChainContainer.getBoundingClientRect();
+                const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+                if (inViewport) {
+                    hopChainContainer.classList.add("in-view");
+                }
+            });
+        });
+    }
+
+    if (hopChainContainer && window.IntersectionObserver) {
+        const hopChainObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    hopChainContainer.classList.add("in-view");
+                }
+            });
+        }, {
+            threshold: 0.15,
+            rootMargin: "0px 0px -30px 0px"
+        });
+        hopChainObserver.observe(hopChainContainer);
     }
 
     // --- Final Path Screenshot Carousel ---
