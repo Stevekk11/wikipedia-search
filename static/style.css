@@ -782,23 +782,37 @@ body {
     font-family: system-ui, -apple-system, sans-serif;
     pointer-events: none;
 }
-.graph-node-tooltip {
-    transition: opacity 0.15s ease;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-}
 .graph-node-highlight {
+    stroke: #facc15 !important;
     stroke-width: 3.5px !important;
-    filter: drop-shadow(0 0 6px currentColor);
+    filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.85));
+    animation: node-pulse 2s ease-in-out infinite;
+}
+.graph-node-via {
+    filter: drop-shadow(0 0 7px rgba(168, 85, 247, 0.7));
 }
 .graph-link-highlight {
     stroke: #eab308 !important;
-    stroke-width: 3.5px !important;
-    stroke-dasharray: 6 3;
+    stroke-width: 4px !important;
+    stroke-dasharray: 8 4;
     animation: dash-flow 1s linear infinite;
+    filter: drop-shadow(0 0 4px rgba(234, 179, 8, 0.6));
+}
+.graph-link-dimmed {
+    opacity: 0.18 !important;
+    transition: opacity 0.6s ease;
+}
+.graph-node-dimmed {
+    opacity: 0.25 !important;
+    transition: opacity 0.6s ease;
 }
 @keyframes dash-flow {
-    from { stroke-dashoffset: 18; }
+    from { stroke-dashoffset: 24; }
     to { stroke-dashoffset: 0; }
+}
+@keyframes node-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
 }
 
 /* Math & LaTeX rendering styles */
