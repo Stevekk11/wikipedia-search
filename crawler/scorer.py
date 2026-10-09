@@ -15,10 +15,7 @@ from .config import (
     HUB_LATE_PENALTY,
     INDEX_PREFIXES,
 )
-from .semantic import cosine_similarity, stem, stem_tokens
-
-# Below this cosine similarity a candidate is considered semantically unrelated
-LOW_SIMILARITY = 0.25
+from .semantic import stem, stem_tokens
 
 
 def compute_relevance_score(
@@ -32,7 +29,7 @@ def compute_relevance_score(
     algorithm: str = "heuristic",
     target_context: Optional[Iterable[str]] = None,
     target_summary: str = "",
-    use_embeddings: bool = True,
+    **_ignored,
 ) -> Tuple[float, bool, List[str], str, str, str]:
     """
     Advanced heuristic score for a candidate link.
@@ -91,7 +88,7 @@ def compute_relevance_score(
     badge_class = "bg-secondary text-white"
 
     # 3. Substring match
-    if target_lower in link_lower or target_s_lower in slug_lower:
+    if target_lower in link_lower or target_s_lower == slug_lower:
         score += 150.0
         reasons.append("Target title substring match (+150 pts)")
         primary_badge = "Title Match"
@@ -107,28 +104,13 @@ def compute_relevance_score(
     link_tokens = stem_tokens(link_lower + " " + slug_lower.replace("_", " "))
     overlap = target_tokens.intersection(link_tokens)
 
-    # Embedding similarity between candidate and target (None if model unavailable)
-    similarity = cosine_similarity(link_title, target_title) if use_embeddings else None
-
     if overlap:
         overlap_pts = len(overlap) * 120.0
-        # Lexical match with no semantic support (e.g. Quantum mechanics -> Quantum-Systems drone company)
-        if similarity is not None and similarity < LOW_SIMILARITY:
-            overlap_pts *= 0.4
-            reasons.append(f"Token overlap discounted: low semantic similarity ({similarity:.2f})")
         score += overlap_pts
         reasons.append(f"Stemmed token overlap with target: {', '.join(sorted(overlap))} (+{overlap_pts:.0f} pts)")
         if not primary_badge or primary_badge == "Candidate Neighbor":
             primary_badge = f"Keywords ({', '.join(sorted(overlap)[:2])})"
             badge_class = "bg-primary text-white"
-
-    if similarity is not None and not overlap and similarity > LOW_SIMILARITY:
-        sim_pts = (similarity - LOW_SIMILARITY) * 400.0
-        score += sim_pts
-        reasons.append(f"Embedding similarity to target {similarity:.2f} (+{sim_pts:.0f} pts)")
-        if primary_badge == "Candidate Neighbor":
-            primary_badge = "Semantic Match"
-            badge_class = "bg-secondary text-white"
 
     # 5. Overlap with target categories & summary keywords (stemmed)
     stemmed_keywords = {stem(k) for k in target_keywords}

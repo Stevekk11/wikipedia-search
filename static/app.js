@@ -13,7 +13,6 @@ document.addEventListener("DOMContentLoaded", () => {
         maxPages: 35,
         maxDepth: 5,
         captureScreenshots: true,
-        useEmbeddings: true,
         adaptiveBalancing: true,
         headless: true,
     };
@@ -63,7 +62,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const modalMaxDepth = document.getElementById("modalMaxDepth");
     const modalMaxDepthBadge = document.getElementById("modalMaxDepthBadge");
     const modalScreenshotToggle = document.getElementById("modalScreenshotToggle");
-    const modalEmbeddingsToggle = document.getElementById("modalEmbeddingsToggle");
     const modalBalancingToggle = document.getElementById("modalBalancingToggle");
     const modalHeadlessToggle = document.getElementById("modalHeadlessToggle");
     const saveSettingsBtn = document.getElementById("saveSettingsBtn");
@@ -196,7 +194,6 @@ document.addEventListener("DOMContentLoaded", () => {
         appSettings.maxPages = parseInt(modalMaxPages.value) || 35;
         appSettings.maxDepth = parseInt(modalMaxDepth.value) || 5;
         appSettings.captureScreenshots = modalScreenshotToggle.checked;
-        appSettings.useEmbeddings = modalEmbeddingsToggle.checked;
         appSettings.adaptiveBalancing = modalBalancingToggle.checked;
         appSettings.headless = modalHeadlessToggle.checked;
 
@@ -261,7 +258,6 @@ document.addEventListener("DOMContentLoaded", () => {
         modalMaxDepth.value = appSettings.maxDepth;
         modalMaxDepthBadge.textContent = appSettings.maxDepth;
         modalScreenshotToggle.checked = appSettings.captureScreenshots;
-        modalEmbeddingsToggle.checked = appSettings.useEmbeddings !== false;
         modalBalancingToggle.checked = appSettings.adaptiveBalancing !== false;
         modalHeadlessToggle.checked = appSettings.headless;
 
@@ -273,7 +269,6 @@ document.addEventListener("DOMContentLoaded", () => {
         // On/off toggle badges (green = on, grey = off)
         const toggleBadges = [
             ["summaryScreenshotsBadge", "bi-camera", "Screenshots", appSettings.captureScreenshots],
-            ["summaryEmbeddingsBadge", "bi-diagram-3", "Embeddings", appSettings.useEmbeddings !== false],
             ["summaryBalancingBadge", "bi-sliders2", "Adaptive Balancing", appSettings.adaptiveBalancing !== false],
             ["summaryHeadlessBadge", "bi-window", "Headless", !!appSettings.headless],
         ];
@@ -652,7 +647,8 @@ document.addEventListener("DOMContentLoaded", () => {
             liveHopBadge.textContent = `Hop ${lastPage.depth}`;
             livePageTitle.textContent = lastPage.title;
             livePageLink.href = lastPage.url;
-            livePageSnippet.textContent = lastPage.snippet || "Playwright inspected page.";
+            livePageSnippet.innerHTML = formatTextWithMath(lastPage.snippet || "Playwright inspected page.");
+            renderMathInContainer(livePageSnippet);
             if (lastPage.screenshot) {
                 liveScreenshotImg.src = lastPage.screenshot;
                 liveScreenshotImg.classList.remove("d-none");
@@ -768,26 +764,48 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- Autocomplete Setup ---
     function setupAutocomplete(inputEl, dropdownEl) {
         let debounceTimer = null;
+        let controller = null;
+        let requestSeq = 0;
 
-        inputEl.addEventListener("input", () => {
+        async function fetchSuggestions() {
             clearTimeout(debounceTimer);
             const val = inputEl.value.trim();
+            if (controller) controller.abort();
+            const seq = ++requestSeq;
             if (val.length < 2) {
                 dropdownEl.classList.add("d-none");
                 dropdownEl.innerHTML = "";
                 return;
             }
+            controller = new AbortController();
+            try {
+                const langCode = appSettings.lang || "en";
+                const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}&lang=${encodeURIComponent(langCode)}`, { signal: controller.signal });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                // Drop stale responses (user typed more, or input changed)
+                if (seq !== requestSeq || inputEl.value.trim() !== val) return;
+                renderSuggestions(data.results || [], inputEl, dropdownEl);
+            } catch (e) {
+                if (e.name !== "AbortError") console.error("Autocomplete fetch error:", e);
+            }
+        }
 
-            debounceTimer = setTimeout(async () => {
-                try {
-                    const langCode = appSettings.lang || "en";
-                    const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}&lang=${encodeURIComponent(langCode)}`);
-                    const data = await res.json();
-                    renderSuggestions(data.results || [], inputEl, dropdownEl);
-                } catch (e) {
-                    console.error("Autocomplete fetch error:", e);
-                }
-            }, 250);
+        inputEl.addEventListener("input", (e) => {
+            clearTimeout(debounceTimer);
+            // Programmatic input events (random/preset) shouldn't pop the dropdown
+            if (e && e.isTrusted === false) {
+                requestSeq++;
+                if (controller) controller.abort();
+                dropdownEl.classList.add("d-none");
+                return;
+            }
+            debounceTimer = setTimeout(fetchSuggestions, 200);
+        });
+
+        // Reopen suggestions when refocusing a field that has results
+        inputEl.addEventListener("focus", () => {
+            if (dropdownEl.children.length) dropdownEl.classList.remove("d-none");
         });
 
         document.addEventListener("click", (e) => {
@@ -1047,7 +1065,6 @@ document.addEventListener("DOMContentLoaded", () => {
             max_depth: appSettings.maxDepth,
             capture_screenshots: appSettings.captureScreenshots,
             headless: appSettings.headless,
-            use_embeddings: appSettings.useEmbeddings,
             adaptive_balancing: appSettings.adaptiveBalancing,
             context_words: appSettings.contextWords,
         };
@@ -1121,7 +1138,8 @@ document.addEventListener("DOMContentLoaded", () => {
             liveHopBadge.textContent = `Hop ${page.depth}`;
             livePageTitle.textContent = page.title;
             livePageLink.href = page.url;
-            livePageSnippet.textContent = page.snippet || "Playwright loaded page and analyzed internal links.";
+            livePageSnippet.innerHTML = formatTextWithMath(page.snippet || "Playwright loaded page and analyzed internal links.");
+            renderMathInContainer(livePageSnippet);
 
             if (page.screenshot) {
                 liveScreenshotImg.src = page.screenshot;
@@ -1333,9 +1351,10 @@ document.addEventListener("DOMContentLoaded", () => {
             contextTargetTitle.textContent = ctx.target_title;
             contextSourceLink.href = ctx.source_url;
             
-            contextBefore.textContent = ctx.words_before ? `... ${ctx.words_before}` : "(Start of page section)";
-            contextAnchor.textContent = ctx.anchor_text || ctx.target_title;
-            contextAfter.textContent = ctx.words_after ? `${ctx.words_after} ...` : "(End of page section)";
+            contextBefore.innerHTML = ctx.words_before ? `... ${formatTextWithMath(ctx.words_before)}` : "(Start of page section)";
+            contextAnchor.innerHTML = formatTextWithMath(ctx.anchor_text || ctx.target_title);
+            contextAfter.innerHTML = ctx.words_after ? `${formatTextWithMath(ctx.words_after)} ...` : "(End of page section)";
+            renderMathInContainer(contextCard);
             
             wordsBeforeCount.textContent = ctx.before_count || 0;
             wordsAfterCount.textContent = ctx.after_count || 0;
@@ -1496,8 +1515,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const sectionText = isBacklinksPlaceholder ? "" : step.section;
 
             if (hasBefore || hasAfter) {
-                const beforePart = hasBefore ? `... ${escapeHtml(step.words_before)}` : "(Section start)";
-                const afterPart = hasAfter ? `${escapeHtml(step.words_after)} ...` : "(Section end)";
+                const beforePart = hasBefore ? `... ${formatTextWithMath(step.words_before)}` : "(Section start)";
+                const afterPart = hasAfter ? `${formatTextWithMath(step.words_after)} ...` : "(Section end)";
                 contextSnippetHtml = `
                     <div class="step-context-box p-2.5 rounded-2 bg-body-tertiary border small mb-2">
                         <div class="d-flex align-items-center justify-content-between text-muted mb-1" style="font-size: 0.76rem;">
@@ -1511,7 +1530,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
                         <div class="step-context-text text-body">
                             <span class="text-secondary">${beforePart}</span>
-                            <mark class="step-anchor-highlight px-2 py-0.5 mx-1 rounded">${escapeHtml(anchorText)}</mark>
+                            <mark class="step-anchor-highlight px-2 py-0.5 mx-1 rounded">${formatTextWithMath(anchorText)}</mark>
                             <span class="text-secondary">${afterPart}</span>
                         </div>
                     </div>
@@ -1662,7 +1681,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="text-body-secondary">
                         <i class="bi bi-cpu-fill text-primary me-1"></i>
                         <strong class="text-body-emphasis">Why this link was chosen:</strong>
-                        ${escapeHtml(step.explanation || "Selected based on graph traversal priority.")}
+                        ${formatTextWithMath(step.explanation || "Selected based on graph traversal priority.")}
                     </div>
                 </div>
 
@@ -1673,6 +1692,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${reasonsHtml}
             `;
 
+            renderMathInContainer(card);
             intermediateStepsList.appendChild(card);
         });
     }
@@ -1737,10 +1757,12 @@ document.addEventListener("DOMContentLoaded", () => {
             </td>
             <td>
                 <small class="text-secondary d-inline-block text-truncate" style="max-width: 320px;" title="${escapeHtml(page.snippet)}">
-                    ${escapeHtml(page.snippet || "—")}
+                    ${formatTextWithMath(page.snippet || "—")}
                 </small>
             </td>
         `;
+
+        renderMathInContainer(tr);
 
         if (page.screenshot) {
             const imgEl = tr.querySelector(".table-thumb");
@@ -1851,5 +1873,77 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
+    }
+
+    // --- Math & LaTeX Rendering Helpers ---
+    function renderMathInContainer(container) {
+        if (!container) return;
+        if (typeof renderMathInElement === "function") {
+            try {
+                renderMathInElement(container, {
+                    delimiters: [
+                        { left: "$$", right: "$$", display: true },
+                        { left: "\\[", right: "\\]", display: true },
+                        { left: "$", right: "$", display: false },
+                        { left: "\\(", right: "\\)", display: false }
+                    ],
+                    throwOnError: false,
+                    ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "option"]
+                });
+            } catch (err) {
+                console.debug("KaTeX auto-render error:", err);
+            }
+        }
+    }
+
+    function formatTextWithMath(text) {
+        if (!text) return "";
+        // First escape HTML safely
+        const escaped = escapeHtml(text);
+        if (typeof katex === "undefined") {
+            return escaped;
+        }
+
+        // Match LaTeX math blocks: $$, \[, \], $, \(, \)
+        // 1. Display math: $$...$$ or \[...\]
+        // 2. Inline math: $...$ or \(...\)
+        const mathRegex = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\(.+?\\\)|\$(?:\\.|[^$\\\n])+\$)/g;
+        return escaped.replace(mathRegex, (match) => {
+            let displayMode = false;
+            let mathExpr = "";
+
+            if (match.startsWith("$$") && match.endsWith("$$")) {
+                displayMode = true;
+                mathExpr = match.slice(2, -2);
+            } else if (match.startsWith("\\[") && match.endsWith("\\]")) {
+                displayMode = true;
+                mathExpr = match.slice(2, -2);
+            } else if (match.startsWith("\\(") && match.endsWith("\\)")) {
+                displayMode = false;
+                mathExpr = match.slice(2, -2);
+            } else if (match.startsWith("$") && match.endsWith("$")) {
+                displayMode = false;
+                mathExpr = match.slice(1, -1);
+            } else {
+                return match;
+            }
+
+            // Unescape entities in formula that escapeHtml encoded (&lt;, &gt;, &amp;, etc.)
+            mathExpr = mathExpr
+                .replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<")
+                .replace(/&gt;/g, ">")
+                .replace(/&quot;/g, '"')
+                .replace(/&#039;/g, "'");
+
+            try {
+                return katex.renderToString(mathExpr, {
+                    displayMode: displayMode,
+                    throwOnError: false
+                });
+            } catch (err) {
+                return match;
+            }
+        });
     }
 });

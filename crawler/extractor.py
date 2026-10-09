@@ -34,7 +34,25 @@ async def extract_page_summary(page: Any, default_title: str, capture_screenshot
     try:
         paragraphs = await page.eval_on_selector_all(
             "#bodyContent p",
-            "elements => elements.map(e => e.innerText.trim()).filter(t => t.length > 40).slice(0, 2).join(' ')",
+            """elements => elements.map(e => {
+                const clone = e.cloneNode(true);
+                clone.querySelectorAll('style, script, .mw-editsection').forEach(x => x.remove());
+                clone.querySelectorAll('math, .mwe-math-element').forEach(m => {
+                    const alt = m.getAttribute('alttext') || (m.querySelector('math') ? m.querySelector('math').getAttribute('alttext') : '');
+                    if (alt) {
+                        let tex = alt.trim();
+                        if (tex.startsWith('{\\\\displaystyle') && tex.endsWith('}')) {
+                            tex = tex.slice(14, -1).trim();
+                        } else if (tex.startsWith('{\\\\textstyle') && tex.endsWith('}')) {
+                            tex = tex.slice(12, -1).trim();
+                        }
+                        const span = document.createElement('span');
+                        span.textContent = `$${tex}$`;
+                        m.replaceWith(span);
+                    }
+                });
+                return clone.innerText.trim();
+            }).filter(t => t.length > 40).slice(0, 2).join(' ')""",
         )
         lead_snippet = paragraphs[:280] + ("..." if len(paragraphs) > 280 else "")
     except Exception:
@@ -120,6 +138,17 @@ async def extract_outgoing_links(page: Any) -> List[Dict[str, str]]:
                                 rangeBefore.setEndBefore(a);
                                 const cloneB = rangeBefore.cloneContents();
                                 cloneB.querySelectorAll('style, script, .mw-editsection').forEach(e => e.remove());
+                                cloneB.querySelectorAll('math, .mwe-math-element').forEach(m => {
+                                    const alt = m.getAttribute('alttext') || (m.querySelector('math') ? m.querySelector('math').getAttribute('alttext') : '');
+                                    if (alt) {
+                                        let tex = alt.trim();
+                                        if (tex.startsWith('{\\\\displaystyle') && tex.endsWith('}')) tex = tex.slice(14, -1).trim();
+                                        else if (tex.startsWith('{\\\\textstyle') && tex.endsWith('}')) tex = tex.slice(12, -1).trim();
+                                        const span = document.createElement('span');
+                                        span.textContent = ` $${tex}$ `;
+                                        m.replaceWith(span);
+                                    }
+                                });
                                 const beforeStr = cloneB.textContent.trim();
                                 const bTokens = beforeStr.split(/\\s+/).filter(Boolean);
                                 wordsBefore = bTokens.slice(-15).join(' ');
@@ -129,6 +158,17 @@ async def extract_outgoing_links(page: Any) -> List[Dict[str, str]]:
                                 rangeAfter.setEnd(block, block.childNodes.length);
                                 const cloneA = rangeAfter.cloneContents();
                                 cloneA.querySelectorAll('style, script, .mw-editsection').forEach(e => e.remove());
+                                cloneA.querySelectorAll('math, .mwe-math-element').forEach(m => {
+                                    const alt = m.getAttribute('alttext') || (m.querySelector('math') ? m.querySelector('math').getAttribute('alttext') : '');
+                                    if (alt) {
+                                        let tex = alt.trim();
+                                        if (tex.startsWith('{\\\\displaystyle') && tex.endsWith('}')) tex = tex.slice(14, -1).trim();
+                                        else if (tex.startsWith('{\\\\textstyle') && tex.endsWith('}')) tex = tex.slice(12, -1).trim();
+                                        const span = document.createElement('span');
+                                        span.textContent = ` $${tex}$ `;
+                                        m.replaceWith(span);
+                                    }
+                                });
                                 const afterStr = cloneA.textContent.trim();
                                 const aTokens = afterStr.split(/\\s+/).filter(Boolean);
                                 wordsAfter = aTokens.slice(0, 15).join(' ');
@@ -295,9 +335,24 @@ async def extract_target_link_context(
                 walkerBefore.currentNode = targetAnchor;
                 const wordsBefore = [];
                 let prevNode;
+                const seenMathBefore = new Set();
                 while (wordsBefore.length < wordsBeforeCount && (prevNode = walkerBefore.previousNode())) {
                     const parent = prevNode.parentElement;
                     if (!parent || parent.closest('script, style, #mw-navigation, #footer')) continue;
+                    const mathEl = parent.closest('math, .mwe-math-element');
+                    if (mathEl) {
+                        if (!seenMathBefore.has(mathEl)) {
+                            seenMathBefore.add(mathEl);
+                            const alt = mathEl.getAttribute('alttext') || (mathEl.querySelector('math') ? mathEl.querySelector('math').getAttribute('alttext') : '');
+                            if (alt) {
+                                let tex = alt.trim();
+                                if (tex.startsWith('{\\\\displaystyle') && tex.endsWith('}')) tex = tex.slice(14, -1).trim();
+                                else if (tex.startsWith('{\\\\textstyle') && tex.endsWith('}')) tex = tex.slice(12, -1).trim();
+                                wordsBefore.unshift(`$${tex}$`);
+                            }
+                        }
+                        continue;
+                    }
                     const txt = prevNode.textContent.trim();
                     if (!txt) continue;
                     const tokens = txt.split(/\\s+/).filter(Boolean);
@@ -310,10 +365,25 @@ async def extract_target_link_context(
                 walkerAfter.currentNode = targetAnchor;
                 const wordsAfter = [];
                 let nextNode;
+                const seenMathAfter = new Set();
                 while (wordsAfter.length < wordsAfterCount && (nextNode = walkerAfter.nextNode())) {
                     if (targetAnchor.contains(nextNode)) continue;
                     const parent = nextNode.parentElement;
                     if (!parent || parent.closest('script, style, #mw-navigation, #footer')) continue;
+                    const mathEl = parent.closest('math, .mwe-math-element');
+                    if (mathEl) {
+                        if (!seenMathAfter.has(mathEl)) {
+                            seenMathAfter.add(mathEl);
+                            const alt = mathEl.getAttribute('alttext') || (mathEl.querySelector('math') ? mathEl.querySelector('math').getAttribute('alttext') : '');
+                            if (alt) {
+                                let tex = alt.trim();
+                                if (tex.startsWith('{\\\\displaystyle') && tex.endsWith('}')) tex = tex.slice(14, -1).trim();
+                                else if (tex.startsWith('{\\\\textstyle') && tex.endsWith('}')) tex = tex.slice(12, -1).trim();
+                                wordsAfter.push(`$${tex}$`);
+                            }
+                        }
+                        continue;
+                    }
                     const txt = nextNode.textContent.trim();
                     if (!txt) continue;
                     const tokens = txt.split(/\\s+/).filter(Boolean);

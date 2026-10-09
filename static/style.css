@@ -630,3 +630,122 @@ body {
     background: var(--bs-secondary-bg);
     color: var(--bs-secondary-color);
 }
+
+/* Math & LaTeX rendering styles */
+.katex {
+    font-size: 1.05em;
+    text-rendering: auto;
+}
+.katex-display {
+    margin: 0.5em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+.math-rendered {
+    display: inline;
+}
+
+
+/* ===== Mobile responsiveness: never overflow horizontally ===== */
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-x: clip;
+}
+
+main, .card, .card-body, .row > *, .d-flex > * {
+    min-width: 0;
+}
+
+img, video, canvas, svg {
+    max-width: 100%;
+}
+
+h1, h2, h3, h4, h5, h6, p, a, td, th, .hop-node, .list-group-item, .badge {
+    overflow-wrap: anywhere;
+}
+
+.table-responsive, .hop-chain-container {
+    max-width: 100%;
+}
+
+.language-menu {
+    max-width: calc(100vw - 1rem);
+}
+
+pre, code {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+@media (max-width: 575.98px) {
+    body {
+        font-size: 1rem;
+    }
+
+    main.container-xl {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+        padding-top: 1.5rem !important;
+        padding-bottom: 1.5rem !important;
+    }
+
+    .search-card .card-body {
+        padding: 1rem !important;
+    }
+
+    .badge {
+        white-space: normal;
+        text-align: left;
+    }
+
+    /* Stack form action buttons full width */
+    #searchForm .d-flex.justify-content-end {
+        flex-direction: column;
+    }
+
+    #searchForm .d-flex.justify-content-end .btn {
+        width: 100%;
+    }
+
+    .hop-node {
+        padding: 8px 12px;
+        gap: 8px;
+        font-size: 0.95rem;
+    }
+
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+
+    .input-group[style*="max-width"] {
+        max-width: 100% !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    /* Navbar: keep icons only so the action row always fits */
+    .glass-navbar .container-xl, .glass-navbar .container-fluid, .glass-navbar > .container {
+        flex-wrap: wrap;
+        row-gap: 0.5rem;
+    }
+    .glass-navbar .d-flex.align-items-center.gap-2 {
+        flex-wrap: wrap;
+        gap: 0.35rem !important;
+        justify-content: flex-end;
+    }
+    .glass-navbar .btn.rounded-pill {
+        padding-left: 0.6rem !important;
+        padding-right: 0.6rem !important;
+    }
+    .glass-navbar .btn.rounded-pill > span:not(.badge) {
+        display: none;
+    }
+    .glass-navbar .dropdown-toggle > span {
+        display: inline !important;
+        max-width: 5.5rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}

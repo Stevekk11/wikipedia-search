@@ -87,27 +87,34 @@ async def autocomplete(q: str = Query(..., min_length=1), lang: str = Query("en"
     Search Wikipedia articles for live autocomplete suggestions.
     Uses Wikipedia Opensearch API for the specified language.
     """
-    try:
-        lang_code = (lang or "en").strip().lower()
-        url = f"https://{lang_code}.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(q)}&limit=8&namespace=0&format=json"
-        headers = {"User-Agent": "WikipediaHopFinder/1.0 (contact@example.com)"}
-        r = requests.get(url, headers=headers, timeout=4)
-        if r.status_code == 200:
-            data = r.json()
-            # data format: [search_query, [titles], [descriptions], [urls]]
-            titles = data[1] if len(data) > 1 else []
-            descriptions = data[2] if len(data) > 2 else []
-            urls = data[3] if len(data) > 3 else []
-            results = []
-            for i in range(len(titles)):
-                results.append({
-                    "title": titles[i],
-                    "description": descriptions[i] if i < len(descriptions) else "",
-                    "url": urls[i] if i < len(urls) else f"https://{lang_code}.wikipedia.org/wiki/{titles[i].replace(' ', '_')}",
-                })
-            return JSONResponse({"results": results})
-    except Exception as e:
-        logger.warning(f"Autocomplete error for '{q}' ({lang}): {e}")
+    lang_code = (lang or "en").strip().lower()
+    if not re.fullmatch(r"[a-z0-9-]{2,12}", lang_code):
+        lang_code = "en"
+    url = f"https://{lang_code}.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(q)}&limit=8&namespace=0&format=json"
+    headers = {"User-Agent": "WikipediaHopFinder/1.0 (contact@example.com)"}
+
+    # requests is blocking: run in a worker thread so it doesn't stall the
+    # event loop (e.g. during crawls), and retry once on transient failures.
+    for attempt in range(2):
+        try:
+            r = await asyncio.to_thread(requests.get, url, headers=headers, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                # data format: [search_query, [titles], [descriptions], [urls]]
+                titles = data[1] if len(data) > 1 else []
+                descriptions = data[2] if len(data) > 2 else []
+                urls = data[3] if len(data) > 3 else []
+                results = []
+                for i in range(len(titles)):
+                    results.append({
+                        "title": titles[i],
+                        "description": descriptions[i] if i < len(descriptions) else "",
+                        "url": urls[i] if i < len(urls) else f"https://{lang_code}.wikipedia.org/wiki/{titles[i].replace(' ', '_')}",
+                    })
+                return JSONResponse({"results": results})
+            logger.warning(f"Autocomplete HTTP {r.status_code} for '{q}' ({lang}), attempt {attempt + 1}")
+        except Exception as e:
+            logger.warning(f"Autocomplete error for '{q}' ({lang}), attempt {attempt + 1}: {e}")
     return JSONResponse({"results": []})
 
 
@@ -406,7 +413,6 @@ async def websocket_search(websocket: WebSocket):
         capture_screenshots = bool(params.get("capture_screenshots", True))
         headless = bool(params.get("headless", True))
         context_words = int(params.get("context_words", 150))
-        use_embeddings = bool(params.get("use_embeddings", True))
         adaptive_balancing = bool(params.get("adaptive_balancing", True))
 
         via = (params.get("via") or "").strip()
@@ -418,7 +424,6 @@ async def websocket_search(websocket: WebSocket):
             capture_screenshots=capture_screenshots,
             context_words=context_words,
             lang=lang,
-            use_embeddings=use_embeddings,
             adaptive_balancing=adaptive_balancing,
         )
         if via:
