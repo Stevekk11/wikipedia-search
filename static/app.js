@@ -105,6 +105,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const resultSummaryText = document.getElementById("resultSummaryText");
     const copyPathBtn = document.getElementById("copyPathBtn");
 
+    // Force-Directed Graph Visualizer
+    const graphCard = document.getElementById("graphCard");
+    const graphContainer = document.getElementById("graphContainer");
+    const forceGraphSvg = document.getElementById("forceGraphSvg");
+    const graphTooltip = document.getElementById("graphTooltip");
+    const graphEmptyState = document.getElementById("graphEmptyState");
+    const graphPathLegend = document.getElementById("graphPathLegend");
+    const graphZoomInBtn = document.getElementById("graphZoomInBtn");
+    const graphZoomOutBtn = document.getElementById("graphZoomOutBtn");
+    const graphResetBtn = document.getElementById("graphResetBtn");
+
     // Intermediate Steps Rationale Card
     const intermediateStepsCard = document.getElementById("intermediateStepsCard");
     const intermediateStepsList = document.getElementById("intermediateStepsList");
@@ -674,6 +685,14 @@ document.addEventListener("DOMContentLoaded", () => {
             showResultCard(item.result_data);
             resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
+            if (typeof d3 !== "undefined") {
+                const sInfo = item.start_info || { title: currentFoundPath[0] || item.start };
+                const tInfo = item.target_info || { title: currentFoundPath[currentFoundPath.length - 1] || item.target };
+                resetForceGraph(sInfo, tInfo);
+                (visitedPagesList || []).forEach(p => recordPageInGraph(p, p.direction));
+                highlightFinalPathInGraph(currentFoundPath);
+            }
+
             if (!item.result_data.assessments && currentFoundPath.length > 0) {
                 fetchAssessmentsForPath(currentFoundPath).then(ass => {
                     if (ass && Object.keys(ass).length > 0) {
@@ -689,6 +708,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
             if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
             contextCard.classList.add("d-none");
+            if (graphCard) graphCard.classList.add("d-none");
+            if (graphSimulation) graphSimulation.stop();
             showAlert(item.message || (item.status === "cancelled" ? "Search stopped by user." : item.status === "not_found" ? "Reached maximum search limit without finding target link." : "An error occurred during crawling."));
             alertCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }
@@ -1105,6 +1126,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
             }
 
+            resetForceGraph(data.start, data.target);
+
         } else if (eventType === "visiting") {
             const page = data.page;
             const totalVisited = data.total_visited;
@@ -1156,6 +1179,8 @@ document.addEventListener("DOMContentLoaded", () => {
             appendVisitedTableRow(page);
             intermediateCountBadge.textContent = visitedPagesList.length;
 
+            recordPageInGraph(page, page.direction);
+
         } else if (eventType === "found") {
             stopTimer();
             setRunningState(false);
@@ -1172,6 +1197,7 @@ document.addEventListener("DOMContentLoaded", () => {
             currentLinkContext = data.link_context;
             pathScreenshotCache = {};
             showResultCard(data);
+            highlightFinalPathInGraph(data.path);
             saveCurrentSearchToHistory("found", data);
 
         } else if (eventType === "not_found") {
@@ -1399,6 +1425,510 @@ document.addEventListener("DOMContentLoaded", () => {
             rootMargin: "0px 0px -30px 0px"
         });
         hopChainObserver.observe(hopChainContainer);
+    }
+
+    // --- Interactive Force-Directed Graph Visualizer (D3.js) ---
+    let graphData = { nodes: [], links: [] };
+    let graphNodesMap = new Map(); // id -> node
+    let graphLinksSet = new Set(); // source|target -> link
+    let graphSimulation = null;
+    let graphSvg = null;
+    let graphZoom = null;
+    let graphContainerGroup = null;
+    let graphFinalPathSet = new Set();
+    let graphStartId = null;
+    let graphTargetId = null;
+
+    function initForceGraph() {
+        if (!forceGraphSvg || typeof d3 === "undefined") return;
+
+        d3.select(forceGraphSvg).selectAll("*").remove();
+
+        const svg = d3.select(forceGraphSvg);
+        graphSvg = svg;
+
+        // Define arrowhead markers
+        const defs = svg.append("defs");
+        defs.append("marker")
+            .attr("id", "arrow-forward")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 22)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-4L9,0L0,4")
+            .attr("fill", "rgba(59, 130, 246, 0.6)");
+
+        defs.append("marker")
+            .attr("id", "arrow-backward")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 22)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-4L9,0L0,4")
+            .attr("fill", "rgba(6, 182, 212, 0.6)");
+
+        defs.append("marker")
+            .attr("id", "arrow-path")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 24)
+            .attr("refY", 0)
+            .attr("markerWidth", 8)
+            .attr("markerHeight", 8)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#eab308");
+
+        graphContainerGroup = svg.append("g").attr("class", "graph-zoom-layer");
+
+        graphContainerGroup.append("g").attr("class", "links-layer");
+        graphContainerGroup.append("g").attr("class", "nodes-layer");
+
+        graphZoom = d3.zoom()
+            .scaleExtent([0.15, 4])
+            .on("zoom", (event) => {
+                graphContainerGroup.attr("transform", event.transform);
+            });
+
+        svg.call(graphZoom);
+
+        if (graphZoomInBtn) {
+            graphZoomInBtn.onclick = () => {
+                if (graphSvg && graphZoom) svg.transition().duration(250).call(graphZoom.scaleBy, 1.3);
+            };
+        }
+        if (graphZoomOutBtn) {
+            graphZoomOutBtn.onclick = () => {
+                if (graphSvg && graphZoom) svg.transition().duration(250).call(graphZoom.scaleBy, 0.77);
+            };
+        }
+        if (graphResetBtn) {
+            graphResetBtn.onclick = () => {
+                resetGraphView();
+            };
+        }
+    }
+
+    function resetGraphView() {
+        if (!graphSvg || !graphZoom) return;
+        const width = forceGraphSvg.clientWidth || 800;
+        const height = forceGraphSvg.clientHeight || 480;
+        graphSvg.transition().duration(400).call(
+            graphZoom.transform,
+            d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85)
+        );
+    }
+
+    function resetForceGraph(startInfo, targetInfo) {
+        graphData = { nodes: [], links: [] };
+        graphNodesMap.clear();
+        graphLinksSet.clear();
+        graphFinalPathSet.clear();
+
+        if (graphEmptyState) graphEmptyState.classList.add("d-none");
+        if (graphPathLegend) graphPathLegend.classList.add("d-none");
+        if (graphCard) graphCard.classList.remove("d-none");
+
+        initForceGraph();
+
+        const width = forceGraphSvg.clientWidth || 800;
+        const height = forceGraphSvg.clientHeight || 480;
+
+        graphStartId = startInfo && startInfo.title ? startInfo.title : "Start";
+        graphTargetId = targetInfo && targetInfo.title ? targetInfo.title : "Target";
+
+        // Seed with Start and Target anchors
+        addGraphNode({
+            id: graphStartId,
+            title: graphStartId,
+            type: "start",
+            depth: 0,
+            x: -160,
+            y: 0,
+            fx: -160,
+            links_count: 0
+        });
+
+        addGraphNode({
+            id: graphTargetId,
+            title: graphTargetId,
+            type: "target",
+            depth: 0,
+            x: 160,
+            y: 0,
+            fx: 160,
+            links_count: 0
+        });
+
+        startOrUpdateSimulation();
+        resetGraphView();
+    }
+
+    function addGraphNode(node) {
+        if (graphNodesMap.has(node.id)) {
+            // Update node attributes if needed
+            const existing = graphNodesMap.get(node.id);
+            if (node.type === "start" || node.type === "target") existing.type = node.type;
+            if (node.depth !== undefined && existing.depth === undefined) existing.depth = node.depth;
+            if (node.links_count !== undefined) existing.links_count = node.links_count;
+            return existing;
+        }
+        graphNodesMap.set(node.id, node);
+        graphData.nodes.push(node);
+        return node;
+    }
+
+    function addGraphLink(sourceId, targetId, direction, isFinalPath = false) {
+        if (!sourceId || !targetId || sourceId === targetId) return;
+        const key = `${sourceId}|${targetId}`;
+        if (graphLinksSet.has(key)) {
+            if (isFinalPath) {
+                const existing = graphData.links.find(l => 
+                    (l.source.id === sourceId || l.source === sourceId) &&
+                    (l.target.id === targetId || l.target === targetId)
+                );
+                if (existing) existing.isFinalPath = true;
+            }
+            return;
+        }
+        graphLinksSet.add(key);
+        graphData.links.push({
+            source: sourceId,
+            target: targetId,
+            direction: direction || "forward",
+            isFinalPath: isFinalPath
+        });
+    }
+
+    function recordPageInGraph(page, direction) {
+        if (!page || !page.title) return;
+        if (typeof d3 === "undefined") return;
+
+        if (graphEmptyState) graphEmptyState.classList.add("d-none");
+        if (graphCard) graphCard.classList.remove("d-none");
+
+        const pageTitle = page.title;
+        const isStart = pageTitle === graphStartId;
+        const isTarget = pageTitle === graphTargetId;
+        const type = isStart ? "start" : isTarget ? "target" : (direction || "forward");
+
+        const node = addGraphNode({
+            id: pageTitle,
+            title: pageTitle,
+            type: type,
+            depth: page.depth !== undefined ? page.depth : 0,
+            links_count: page.links_count || 0,
+            snippet: page.snippet || "",
+            url: page.url || ""
+        });
+
+        // If path_so_far is available, wire the parent-child chain
+        const trail = page.path_so_far || [];
+        if (trail.length >= 2) {
+            for (let i = 0; i < trail.length - 1; i++) {
+                const src = trail[i];
+                const dst = trail[i + 1];
+                addGraphNode({ id: src, title: src, type: src === graphStartId ? "start" : direction, depth: i });
+                addGraphNode({ id: dst, title: dst, type: dst === graphTargetId ? "target" : direction, depth: i + 1 });
+                addGraphLink(src, dst, direction);
+            }
+        } else if (trail.length === 1 && trail[0] !== pageTitle) {
+            addGraphNode({ id: trail[0], title: trail[0], type: trail[0] === graphStartId ? "start" : direction, depth: 0 });
+            addGraphLink(trail[0], pageTitle, direction);
+        }
+
+        updateGraphD3Elements();
+    }
+
+    function highlightFinalPathInGraph(pathTitles) {
+        if (!pathTitles || pathTitles.length < 2) return;
+        if (typeof d3 === "undefined") return;
+
+        graphFinalPathSet = new Set(pathTitles);
+        if (graphPathLegend) graphPathLegend.classList.remove("d-none");
+
+        // Mark path nodes and ensure all path links exist
+        for (let i = 0; i < pathTitles.length; i++) {
+            const title = pathTitles[i];
+            const isStart = i === 0;
+            const isTarget = i === pathTitles.length - 1;
+            const node = addGraphNode({
+                id: title,
+                title: title,
+                type: isStart ? "start" : isTarget ? "target" : "path",
+                depth: i
+            });
+            node.isFinalPath = true;
+
+            if (i < pathTitles.length - 1) {
+                const next = pathTitles[i + 1];
+                addGraphNode({ id: next, title: next, type: (i + 1 === pathTitles.length - 1) ? "target" : "path", depth: i + 1 });
+                addGraphLink(title, next, "path", true);
+            }
+        }
+
+        // Unfix start and target so the whole discovered chain springs into graceful layout
+        const startN = graphNodesMap.get(graphStartId);
+        if (startN) { startN.fx = null; }
+        const targetN = graphNodesMap.get(graphTargetId);
+        if (targetN) { targetN.fx = null; }
+
+        updateGraphD3Elements();
+        if (graphSimulation) {
+            graphSimulation.alpha(0.6).restart();
+        }
+    }
+
+    function startOrUpdateSimulation() {
+        if (typeof d3 === "undefined" || !graphContainerGroup) return;
+
+        if (!graphSimulation) {
+            graphSimulation = d3.forceSimulation(graphData.nodes)
+                .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(d => d.isFinalPath ? 75 : 65))
+                .force("charge", d3.forceManyBody().strength(d => d.type === "start" || d.type === "target" ? -350 : -140))
+                .force("collide", d3.forceCollide().radius(26).iterations(2))
+                .force("center", d3.forceCenter(0, 0).strength(0.06))
+                .force("x", d3.forceX(d => d.type === "start" ? -180 : d.type === "target" ? 180 : 0).strength(0.04))
+                .force("y", d3.forceY(0).strength(0.04))
+                .on("tick", ticked);
+        } else {
+            graphSimulation.nodes(graphData.nodes);
+            graphSimulation.force("link").links(graphData.links);
+            graphSimulation.alpha(0.35).restart();
+        }
+
+        updateGraphD3Elements();
+    }
+
+    function updateGraphD3Elements() {
+        if (!graphContainerGroup || typeof d3 === "undefined") return;
+
+        if (graphSimulation) {
+            graphSimulation.nodes(graphData.nodes);
+            graphSimulation.force("link").links(graphData.links);
+            graphSimulation.alpha(0.3).restart();
+        }
+
+        const linksLayer = graphContainerGroup.select(".links-layer");
+        const nodesLayer = graphContainerGroup.select(".nodes-layer");
+
+        // ---- LINKS ----
+        const linkSel = linksLayer.selectAll("line.graph-link")
+            .data(graphData.links, d => `${(d.source.id || d.source)}|${(d.target.id || d.target)}`);
+
+        linkSel.exit().remove();
+
+        const linkEnter = linkSel.enter().append("line")
+            .attr("class", d => `graph-link ${d.isFinalPath ? "graph-link-highlight" : ""}`)
+            .attr("stroke", d => {
+                if (d.isFinalPath) return "#eab308";
+                return d.direction === "backward" ? "rgba(6, 182, 212, 0.45)" : "rgba(59, 130, 246, 0.45)";
+            })
+            .attr("stroke-width", d => d.isFinalPath ? 3.5 : 1.8)
+            .attr("marker-end", d => {
+                if (d.isFinalPath) return "url(#arrow-path)";
+                return d.direction === "backward" ? "url(#arrow-backward)" : "url(#arrow-forward)";
+            });
+
+        linkSel.merge(linkEnter)
+            .classed("graph-link-highlight", d => !!d.isFinalPath)
+            .attr("stroke", d => {
+                if (d.isFinalPath) return "#eab308";
+                return d.direction === "backward" ? "rgba(6, 182, 212, 0.45)" : "rgba(59, 130, 246, 0.45)";
+            })
+            .attr("stroke-width", d => d.isFinalPath ? 3.5 : 1.8)
+            .attr("marker-end", d => {
+                if (d.isFinalPath) return "url(#arrow-path)";
+                return d.direction === "backward" ? "url(#arrow-backward)" : "url(#arrow-forward)";
+            });
+
+        // ---- NODES ----
+        const nodeSel = nodesLayer.selectAll("g.graph-node")
+            .data(graphData.nodes, d => d.id);
+
+        nodeSel.exit().remove();
+
+        const nodeEnter = nodeSel.enter().append("g")
+            .attr("class", "graph-node")
+            .style("cursor", "pointer")
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended)
+            );
+
+        // Circle
+        nodeEnter.append("circle")
+            .attr("r", d => d.type === "start" || d.type === "target" ? 17 : (d.isFinalPath ? 14 : 10))
+            .attr("fill", d => getNodeColor(d))
+            .attr("stroke", "#ffffff")
+            .attr("stroke-width", d => d.type === "start" || d.type === "target" ? 3 : 2)
+            .style("transition", "r 0.2s ease, fill 0.2s ease");
+
+        // Icon text or label inside important nodes
+        nodeEnter.append("text")
+            .attr("class", "node-icon")
+            .attr("text-anchor", "middle")
+            .attr("dy", "0.35em")
+            .attr("fill", "#ffffff")
+            .attr("font-size", d => d.type === "start" || d.type === "target" ? "11px" : "9px")
+            .attr("font-weight", "bold")
+            .text(d => {
+                if (d.type === "start") return "S";
+                if (d.type === "target") return "T";
+                if (d.isFinalPath) return "★";
+                return "";
+            });
+
+        // Title Label
+        nodeEnter.append("text")
+            .attr("class", "node-label")
+            .attr("x", 0)
+            .attr("y", d => d.type === "start" || d.type === "target" ? 27 : 20)
+            .attr("text-anchor", "middle")
+            .attr("font-size", d => d.type === "start" || d.type === "target" ? "12px" : "10px")
+            .attr("font-weight", d => d.type === "start" || d.type === "target" || d.isFinalPath ? "bold" : "500")
+            .attr("fill", "var(--bs-body-color, #1f2937)")
+            .text(d => truncateTitle(d.title, 18))
+            .style("paint-order", "stroke")
+            .style("stroke", "var(--bs-body-bg, #ffffff)")
+            .style("stroke-width", "3px")
+            .style("stroke-linejoin", "round");
+
+        // Hover & Click Interactions
+        nodeEnter
+            .on("mouseenter", (event, d) => showGraphTooltip(event, d))
+            .on("mousemove", (event) => positionGraphTooltip(event))
+            .on("mouseleave", () => hideGraphTooltip())
+            .on("click", (event, d) => {
+                if (event.defaultPrevented) return;
+                const lang = appSettings.lang || "en";
+                window.open(`https://${lang}.wikipedia.org/wiki/${encodeURIComponent(d.title.replace(/ /g, "_"))}`, "_blank");
+            });
+
+        // Merge updates
+        const nodeMerged = nodeSel.merge(nodeEnter);
+        nodeMerged.select("circle")
+            .attr("r", d => d.type === "start" || d.type === "target" ? 17 : (d.isFinalPath ? 14 : 10))
+            .attr("fill", d => getNodeColor(d))
+            .attr("stroke", d => d.isFinalPath ? "#facc15" : "#ffffff")
+            .attr("stroke-width", d => d.isFinalPath ? 3 : (d.type === "start" || d.type === "target" ? 3 : 2))
+            .classed("graph-node-highlight", d => !!d.isFinalPath);
+
+        nodeMerged.select("text.node-icon")
+            .text(d => {
+                if (d.type === "start") return "S";
+                if (d.type === "target") return "T";
+                if (d.isFinalPath) return "★";
+                return "";
+            });
+
+        nodeMerged.select("text.node-label")
+            .attr("font-weight", d => d.type === "start" || d.type === "target" || d.isFinalPath ? "bold" : "500")
+            .attr("fill", d => d.isFinalPath ? "var(--bs-primary, #2563eb)" : "var(--bs-body-color, #1f2937)");
+    }
+
+    function getNodeColor(d) {
+        if (d.type === "start") return "#10b981"; // emerald green
+        if (d.type === "target") return "#ef4444"; // red
+        if (d.isFinalPath) return "#f59e0b"; // amber gold
+        if (d.type === "backward") return "#06b6d4"; // cyan
+        return "#3b82f6"; // blue forward
+    }
+
+    function truncateTitle(str, maxLen = 16) {
+        if (!str) return "";
+        return str.length > maxLen ? str.slice(0, maxLen - 1) + "…" : str;
+    }
+
+    function ticked() {
+        if (!graphContainerGroup) return;
+
+        graphContainerGroup.selectAll("line.graph-link")
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        graphContainerGroup.selectAll("g.graph-node")
+            .attr("transform", d => `translate(${d.x},${d.y})`);
+    }
+
+    function dragstarted(event, d) {
+        if (!event.active && graphSimulation) graphSimulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+
+    function dragended(event, d) {
+        if (!event.active && graphSimulation) graphSimulation.alphaTarget(0);
+        // Leave start and target fixed if search is still ongoing, otherwise release
+        if (!graphFinalPathSet.size && (d.type === "start" || d.type === "target")) {
+            d.fx = d.x;
+            d.fy = d.y;
+        } else {
+            d.fx = null;
+            d.fy = null;
+        }
+    }
+
+    function showGraphTooltip(event, d) {
+        if (!graphTooltip) return;
+        const typeLabel = d.type === "start" ? "Start Article" :
+                          d.type === "target" ? "Target Article" :
+                          d.isFinalPath ? "Discovered Path" :
+                          d.type === "backward" ? "Backward Frontier" : "Forward Frontier";
+
+        const badgeClass = d.type === "start" ? "text-bg-success" :
+                           d.type === "target" ? "text-bg-danger" :
+                           d.isFinalPath ? "text-bg-warning text-dark" :
+                           d.type === "backward" ? "text-bg-info text-dark" : "text-bg-primary";
+
+        graphTooltip.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                <span class="badge ${badgeClass} text-uppercase" style="font-size: 0.65rem;">${typeLabel}</span>
+                <span class="text-secondary small">Hop ${d.depth !== undefined ? d.depth : 0}</span>
+            </div>
+            <div class="fw-bold mb-1 text-truncate">${escapeHtml(d.title)}</div>
+            ${d.links_count ? `<div class="text-secondary small mb-1"><i class="bi bi-link-45deg"></i> ${d.links_count} links explored</div>` : ""}
+            ${d.snippet ? `<div class="text-muted small text-truncate-2" style="font-size: 0.75rem; max-height: 48px; overflow: hidden;">${escapeHtml(d.snippet)}</div>` : ""}
+            <div class="text-primary small mt-1" style="font-size: 0.7rem;"><i class="bi bi-box-arrow-up-right me-1"></i>Click to open in Wikipedia</div>
+        `;
+        graphTooltip.classList.remove("d-none");
+        positionGraphTooltip(event);
+    }
+
+    function positionGraphTooltip(event) {
+        if (!graphTooltip || !graphContainer) return;
+        const bounds = graphContainer.getBoundingClientRect();
+        const mouseX = event.clientX - bounds.left;
+        const mouseY = event.clientY - bounds.top;
+        const ttWidth = 240;
+        const ttHeight = 110;
+
+        let left = mouseX + 15;
+        let top = mouseY + 15;
+
+        if (left + ttWidth > bounds.width) left = mouseX - ttWidth - 15;
+        if (top + ttHeight > bounds.height) top = mouseY - ttHeight - 15;
+
+        graphTooltip.style.left = `${Math.max(5, left)}px`;
+        graphTooltip.style.top = `${Math.max(5, top)}px`;
+    }
+
+    function hideGraphTooltip() {
+        if (graphTooltip) graphTooltip.classList.add("d-none");
     }
 
     // --- Final Path Screenshot Carousel ---
@@ -1886,6 +2416,10 @@ document.addEventListener("DOMContentLoaded", () => {
         livePageSnippet.textContent = "Opening Chromium browser instance...";
         liveScreenshotImg.classList.add("d-none");
         noScreenshotPlaceholder.classList.remove("d-none");
+
+        if (graphCard) graphCard.classList.add("d-none");
+        if (graphEmptyState) graphEmptyState.classList.remove("d-none");
+        if (graphSimulation) graphSimulation.stop();
     }
 
     // --- Timer ---

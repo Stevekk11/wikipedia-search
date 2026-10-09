@@ -771,6 +771,36 @@ body {
     color: var(--bs-secondary-color);
 }
 
+/* Force-Directed Graph Visualizer */
+.force-graph-container {
+    background-color: var(--bs-body-tertiary);
+    background-image: radial-gradient(rgba(var(--bs-border-color-rgb), 0.75) 1px, transparent 1px);
+    background-size: 24px 24px;
+    user-select: none;
+}
+.force-graph-container svg text {
+    font-family: system-ui, -apple-system, sans-serif;
+    pointer-events: none;
+}
+.graph-node-tooltip {
+    transition: opacity 0.15s ease;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+.graph-node-highlight {
+    stroke-width: 3.5px !important;
+    filter: drop-shadow(0 0 6px currentColor);
+}
+.graph-link-highlight {
+    stroke: #eab308 !important;
+    stroke-width: 3.5px !important;
+    stroke-dasharray: 6 3;
+    animation: dash-flow 1s linear infinite;
+}
+@keyframes dash-flow {
+    from { stroke-dashoffset: 18; }
+    to { stroke-dashoffset: 0; }
+}
+
 /* Math & LaTeX rendering styles */
 .katex {
     font-size: 1.05em;

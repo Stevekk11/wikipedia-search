@@ -195,7 +195,7 @@ async def extract_outgoing_links(page: Any) -> List[Dict[str, str]]:
         return []
 
 
-async def get_page_backlinks(page: Any, slug: str, limit: int = 150, lang: str = "en") -> List[Dict[str, str]]:
+async def get_page_backlinks(page: Any, slug: str, limit: int = 500, lang: str = "en") -> List[Dict[str, str]]:
     """
     Fetch incoming backlinks to a Wikipedia article.
     First tries Wikipedia Action API; falls back to Playwright Special:WhatLinksHere.

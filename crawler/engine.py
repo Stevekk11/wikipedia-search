@@ -608,7 +608,7 @@ class WikipediaCrawler:
                             return
 
                         # Fetch incoming backlinks to this node (pages that link TO this node)
-                        incoming_backlinks = await get_page_backlinks(page, current_slug, limit=120, lang=self.lang)
+                        incoming_backlinks = await get_page_backlinks(page, current_slug, limit=500, lang=self.lang)
 
                         backward_visited[slug_key] = {
                             "title": clean_title,
