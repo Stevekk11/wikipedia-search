@@ -1118,7 +1118,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const maxPages = data.max_pages || appSettings.maxPages;
             kpiPagesSub.textContent = "0 forward \u2022 0 backward";
             const backlinksCount = data.target_backlinks_count || 0;
-            kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
+            if (data.is_niche) {
+                const bridgeCount = data.category_bridges_count || 0;
+                kpiStatusBadge.textContent = `Niche Target: Seeded ${bridgeCount} Category Bridges (${backlinksCount} direct)`;
+            } else {
+                kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
+            }
             statsSection.classList.remove("d-none");
             liveInspectorCard.classList.remove("d-none");
             intermediateSection.classList.remove("d-none");

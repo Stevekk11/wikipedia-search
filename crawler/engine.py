@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 
 from .api import (
     fetch_article_assessments,
+    fetch_niche_target_bridges,
     fetch_target_backlinks,
+    fetch_target_backlinks_detailed,
     fetch_target_categories,
     get_wikipedia_info,
 )
@@ -160,17 +162,46 @@ class WikipediaCrawler:
         target_backlinks: Set[str] = set()
         target_keywords: Set[str] = set()
         start_keywords: Set[str] = set()
+        target_2hop_feeders: Set[str] = set()
+        target_category_bridges: Set[str] = set()
+        direct_bl_list: List[Dict[str, str]] = []
+        is_niche = False
+        niche_bridges_data: Dict[str, Any] = {}
 
         if self.algorithm == "heuristic":
             loop = asyncio.get_running_loop()
-            t_backlinks_fut = loop.run_in_executor(None, fetch_target_backlinks, target_info["slug"], 500, self.lang)
+            t_bl_fut = loop.run_in_executor(None, fetch_target_backlinks_detailed, target_info["slug"], 500, self.lang)
             t_cats_fut = loop.run_in_executor(None, fetch_target_categories, target_info["slug"], self.lang)
             s_cats_fut = loop.run_in_executor(None, fetch_target_categories, start_info["slug"], self.lang)
-            target_backlinks, target_categories, start_categories = await asyncio.gather(
-                t_backlinks_fut, t_cats_fut, s_cats_fut
+            direct_bl_list, target_categories, start_categories = await asyncio.gather(
+                t_bl_fut, t_cats_fut, s_cats_fut
             )
+            for b in direct_bl_list:
+                target_backlinks.add(b["title"].lower())
+                target_backlinks.add(b["slug"].lower())
             target_keywords.update(target_categories)
             start_keywords.update(start_categories)
+
+            # Check if target is niche (< 25 direct backlinks)
+            is_niche = len(direct_bl_list) < 25
+            if is_niche:
+                logger.info(
+                    f"Target '{target_info['title']}' is niche ({len(direct_bl_list)} direct backlinks). "
+                    f"Activating Category Bridge Seeding..."
+                )
+                niche_bridges_data = await loop.run_in_executor(
+                    None, fetch_niche_target_bridges, target_info["slug"], target_info["title"], direct_bl_list, self.lang
+                )
+                for cat_top in niche_bridges_data.get("category_topics", []):
+                    target_keywords.update(re.findall(r"\w+", cat_top.lower()))
+                    target_category_bridges.add(cat_top.lower())
+                    target_category_bridges.add(cat_top.lower().replace(" ", "_"))
+
+                for b_slug, b_info in niche_bridges_data.get("two_hop_bridges", {}).items():
+                    target_2hop_feeders.add(b_slug)
+                    target_2hop_feeders.add(b_info["parent_title"].lower())
+                    if b_info.get("is_category_related"):
+                        target_category_bridges.add(b_slug)
 
         if target_info.get("extract"):
             target_keywords.update(re.findall(r"\w+", target_info["extract"].lower()))
@@ -193,7 +224,8 @@ class WikipediaCrawler:
 
         logger.info(
             f"Bidirectional search initialized: Start '{start_info['title']}' ({len(start_keywords)} keywords) <===> "
-            f"Target '{target_info['title']}' ({len(target_keywords)} keywords, {len(target_backlinks)} pre-mapped backlinks)"
+            f"Target '{target_info['title']}' ({len(target_keywords)} keywords, {len(target_backlinks)} pre-mapped backlinks, "
+            f"is_niche={is_niche}, 2-hop bridgeheads={len(target_2hop_feeders)})"
         )
 
         yield {
@@ -205,6 +237,9 @@ class WikipediaCrawler:
             "max_depth": self.max_depth,
             "context_words": self.context_words,
             "target_backlinks_count": len(target_backlinks),
+            "is_niche": is_niche,
+            "category_bridges_count": len(target_2hop_feeders),
+            "category_topics": niche_bridges_data.get("category_topics", []),
         }
 
         # Traversal State Maps:
@@ -224,6 +259,170 @@ class WikipediaCrawler:
         backward_queue: List[Tuple[float, int, str, str, List[str], List[str], List[Dict]]] = [
             (0.0, 0, target_info["slug"], target_info["title"], [target_info["title"]], [target_info["slug"]], [])
         ]
+
+        # Pre-seed direct backlinks into backward_incoming and backward_queue
+        for b in (niche_bridges_data.get("boosted_direct") if is_niche else direct_bl_list):
+            b_title = b["title"]
+            b_slug = b["slug"]
+            b_slug_key = b_slug.lower()
+            is_cat_bridge = b.get("is_category_bridge", False)
+            primary_badge = "🌟 Category Feeder" if is_cat_bridge else "⭐ Direct Feeder"
+            primary_class = "bg-warning text-dark"
+
+            step_target = {
+                "from_title": b_title,
+                "from_slug": b_slug,
+                "from_url": f"https://{self.lang}.wikipedia.org/wiki/{b_slug}",
+                "to_title": target_info["title"],
+                "to_slug": target_info["slug"],
+                "to_url": f"https://{self.lang}.wikipedia.org/wiki/{target_info['slug']}",
+                "section": "Article Content / References",
+                "anchor_text": target_info["title"],
+                "words_before": "",
+                "words_after": "",
+                "hop": 1,
+                "score": 5500.0 if is_cat_bridge else 5000.0,
+                "is_feeder": True,
+                "badge": primary_badge,
+                "badge_class": primary_class,
+                "badges": [{"text": primary_badge, "class": primary_class}],
+                "reasons": [
+                    f"Direct incoming link to target '{target_info['title']}'",
+                    *(["Category bridge feeder aligned with target topics"] if is_cat_bridge else []),
+                ],
+                "explanation": f"Reverse graph search: '{b_title}' links directly into target '{target_info['title']}'.",
+            }
+            backward_incoming[b_slug_key] = {
+                "parent_slug": b_slug,
+                "parent_title": b_title,
+                "step_info": step_target,
+                "path_titles": [b_title, target_info["title"]],
+                "path_slugs": [b_slug, target_info["slug"]],
+                "path_steps": [step_target],
+            }
+
+            b_score, _, _, _, _, _ = compute_relevance_score(
+                b_title,
+                b_slug,
+                start_info["title"],
+                start_info["slug"],
+                start_keywords,
+                target_backlinks=set(),
+                depth=1,
+                algorithm=self.algorithm,
+                target_context=start_context,
+                target_summary=start_summary,
+            )
+            if is_cat_bridge:
+                b_score += 150.0
+
+            backward_queue.append((
+                b_score,
+                1,
+                b_slug,
+                b_title,
+                [b_title, target_info["title"]],
+                [b_slug, target_info["slug"]],
+                [step_target],
+            ))
+
+        # If niche target, also pre-seed verified 2-hop category bridgeheads
+        if is_niche and niche_bridges_data:
+            two_hop_map = niche_bridges_data.get("two_hop_bridges", {})
+            scored_bridgeheads = []
+            for p_slug_key, b_info in two_hop_map.items():
+                p_slug = b_info["parent_slug"]
+                p_title = b_info["parent_title"]
+                bridge_slug = b_info["bridge_slug"]
+                bridge_title = b_info["bridge_title"]
+                is_cat_rel = b_info.get("is_category_related", False)
+                is_hub = b_info.get("is_hub", False)
+
+                step_bridge = {
+                    "from_title": p_title,
+                    "from_slug": p_slug,
+                    "from_url": f"https://{self.lang}.wikipedia.org/wiki/{p_slug}",
+                    "to_title": bridge_title,
+                    "to_slug": bridge_slug,
+                    "to_url": f"https://{self.lang}.wikipedia.org/wiki/{bridge_slug}",
+                    "section": "Article Content",
+                    "anchor_text": bridge_title,
+                    "words_before": "",
+                    "words_after": "",
+                    "hop": 1,
+                    "score": 3500.0 if is_cat_rel else 3200.0,
+                    "is_feeder": True,
+                    "badge": "🌉 2-Hop Bridge",
+                    "badge_class": "bg-info text-dark",
+                    "badges": [{"text": "🌉 2-Hop Bridge", "class": "bg-info text-dark"}],
+                    "reasons": [
+                        f"Verified 2-hop bridge: '{p_title}' links into feeder '{bridge_title}'",
+                        f"Feeder '{bridge_title}' links directly into target '{target_info['title']}'",
+                    ],
+                    "explanation": f"Reverse category feeder: '{p_title}' links into '{bridge_title}', forming a 2-hop route into '{target_info['title']}'.",
+                }
+
+                step_to_target = {
+                    "from_title": bridge_title,
+                    "from_slug": bridge_slug,
+                    "from_url": f"https://{self.lang}.wikipedia.org/wiki/{bridge_slug}",
+                    "to_title": target_info["title"],
+                    "to_slug": target_info["slug"],
+                    "to_url": f"https://{self.lang}.wikipedia.org/wiki/{target_info['slug']}",
+                    "section": "Article Content / References",
+                    "anchor_text": target_info["title"],
+                    "words_before": "",
+                    "words_after": "",
+                    "hop": 2,
+                    "score": 5000.0,
+                    "is_feeder": True,
+                    "badge": "⭐ Direct Feeder",
+                    "badge_class": "bg-warning text-dark",
+                    "badges": [{"text": "⭐ Direct Feeder", "class": "bg-warning text-dark"}],
+                    "reasons": [f"Direct incoming link into target '{target_info['title']}'"],
+                    "explanation": f"Direct link to target '{target_info['title']}'.",
+                }
+
+                backward_incoming[p_slug_key] = {
+                    "parent_slug": p_slug,
+                    "parent_title": p_title,
+                    "step_info": step_bridge,
+                    "path_titles": [p_title, bridge_title, target_info["title"]],
+                    "path_slugs": [p_slug, bridge_slug, target_info["slug"]],
+                    "path_steps": [step_bridge, step_to_target],
+                }
+
+                p_score, _, _, _, _, _ = compute_relevance_score(
+                    p_title,
+                    p_slug,
+                    start_info["title"],
+                    start_info["slug"],
+                    start_keywords,
+                    target_backlinks=set(),
+                    depth=2,
+                    algorithm=self.algorithm,
+                    target_context=start_context,
+                    target_summary=start_summary,
+                )
+                if is_cat_rel:
+                    p_score += 150.0
+                if is_hub:
+                    p_score += 100.0
+
+                scored_bridgeheads.append((
+                    p_score,
+                    2,
+                    p_slug,
+                    p_title,
+                    [p_title, bridge_title, target_info["title"]],
+                    [p_slug, bridge_slug, target_info["slug"]],
+                    [step_bridge, step_to_target],
+                ))
+
+            # Sort bridgeheads and enqueue top 15 into backward search
+            scored_bridgeheads.sort(key=lambda x: x[0], reverse=True)
+            for item in scored_bridgeheads[:15]:
+                backward_queue.append(item)
 
         visited_count = 0
 
@@ -469,6 +668,8 @@ class WikipediaCrawler:
                                     algorithm=self.algorithm,
                                     target_context=target_context,
                                     target_summary=target_summary,
+                                    target_2hop_feeders=target_2hop_feeders,
+                                    target_category_bridges=target_category_bridges,
                                 )
                                 badges_list = [{"text": badge, "class": badge_class}]
                                 step_data = {
@@ -856,6 +1057,13 @@ class WikipediaCrawler:
                         "message": f"Search cancelled by user after visiting {visited_count} pages ({len(forward_visited)} forward + {len(backward_visited)} backward).",
                     }
                 else:
+                    if visited_count >= self.max_pages:
+                        not_found_msg = f"Reached maximum page limit ({self.max_pages} pages) without meeting. Try increasing the page limit."
+                    else:
+                        not_found_msg = (
+                            f"Search frontiers exhausted after inspecting {visited_count} total pages "
+                            f"({len(forward_visited)} forward + {len(backward_visited)} backward) at maximum search depth without finding a connecting bridge."
+                        )
                     yield {
                         "event": "not_found",
                         "total_visited": visited_count,
@@ -863,7 +1071,7 @@ class WikipediaCrawler:
                         "backward_visited_count": len(backward_visited),
                         "max_pages": self.max_pages,
                         "intermediate_pages": intermediate_pages,
-                        "message": f"Reached maximum page limit ({self.max_pages} pages) without meeting. Try increasing the page limit.",
+                        "message": not_found_msg,
                     }
 
             finally:

@@ -8,11 +8,16 @@ and Wikipedia quality assessment scores & WikiProjects retrieval.
 import logging
 import re
 import urllib.parse
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import requests
 
-from .config import DEFAULT_REST_USER_AGENT, DEFAULT_USER_AGENT
+from .config import (
+    DEFAULT_REST_USER_AGENT,
+    DEFAULT_USER_AGENT,
+    DISALLOWED_PREFIXES,
+    HIGH_CENTRALITY_HUBS,
+)
 
 logger = logging.getLogger("wikipedia_crawler.api")
 
@@ -178,62 +183,204 @@ def get_wikipedia_info(title_or_slug: str, lang: str = "en") -> Dict[str, str]:
     }
 
 
+def fetch_target_backlinks_detailed(target_slug: str, limit: int = 500, lang: str = "en") -> List[Dict[str, str]]:
+    """
+    Fetch articles that link directly to the target article.
+    Uses Wikipedia Action API list=backlinks with blnamespace=0 and blfilterredir=nonredirects.
+    """
+    lang = (lang or "en").strip().lower()
+    clean_slug = target_slug.strip().replace(" ", "_")
+    encoded = urllib.parse.quote(clean_slug.replace("_", " "))
+    headers = {"User-Agent": DEFAULT_USER_AGENT}
+    url = (
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&list=backlinks"
+        f"&bltitle={encoded}&bllimit={min(limit, 500)}&blnamespace=0&blfilterredir=nonredirects&format=json"
+    )
+    backlinks: List[Dict[str, str]] = []
+    try:
+        r = requests.get(url, headers=headers, timeout=5).json()
+        bl_list = r.get("query", {}).get("backlinks", [])
+        for b in bl_list:
+            t = b.get("title", "")
+            if t and not any(t.startswith(p) for p in DISALLOWED_PREFIXES):
+                backlinks.append({"title": t, "slug": t.replace(" ", "_")})
+    except Exception as e:
+        logger.warning(f"Failed to fetch detailed backlinks for {target_slug} ({lang}): {e}")
+    return backlinks
+
+
 def fetch_target_backlinks(target_slug: str, limit: int = 500, lang: str = "en") -> Set[str]:
     """
     Fetch articles that link directly to the target article (What Links Here).
     Any page linking to these backlinks is guaranteed to be 1 hop away from target!
     """
-    lang = (lang or "en").strip().lower()
+    detailed = fetch_target_backlinks_detailed(target_slug, limit=limit, lang=lang)
     backlinks: Set[str] = set()
+    for item in detailed:
+        t = item["title"]
+        s = item["slug"]
+        backlinks.add(t.lower())
+        backlinks.add(s.lower())
+    return backlinks
+
+
+def fetch_target_category_titles(target_slug: str, lang: str = "en") -> List[str]:
+    """
+    Fetch the list of topical Category: titles for a Wikipedia article,
+    ignoring maintenance, tracking, and metadata categories.
+    """
+    lang = (lang or "en").strip().lower()
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     url = (
+<<<<<<< HEAD
         f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=linkshere"
         f"&titles={urllib.parse.quote(target_slug)}&lhlimit={limit}&lhnamespace=0&format=json"
+=======
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=categories"
+        f"&titles={urllib.parse.quote(target_slug)}&cllimit=50&format=json"
+>>>>>>> 2a65300 (Implement Improvement 2: Category Bridge Seeding for niche targets)
     )
+    categories: List[str] = []
+    ignored = [
+        "articles", "all ", "use ", "pages", "cs1", "commons",
+        "short", "statements", "webarchive", "wikidata", "coordinates",
+        "gadget", "hidden", "disambiguation", "redirects", "infobox"
+    ]
     try:
-        r = requests.get(url, headers=headers, timeout=5).json()
+        r = requests.get(url, headers=headers, timeout=4).json()
         pages = r.get("query", {}).get("pages", {})
         for pid, p in pages.items():
-            for item in p.get("linkshere", []):
-                t = item.get("title", "")
-                if t:
-                    backlinks.add(t.lower())
-                    backlinks.add(t.lower().replace(" ", "_"))
+            for cat in p.get("categories", []):
+                c_title = cat.get("title", "")
+                if not any(ign in c_title.lower() for ign in ignored):
+                    categories.append(c_title)
     except Exception as e:
-        logger.warning(f"Failed to fetch target backlinks for {target_slug} ({lang}): {e}")
-    return backlinks
+        logger.warning(f"Failed to fetch category titles for {target_slug} ({lang}): {e}")
+    return categories
 
 
 def fetch_target_categories(target_slug: str, lang: str = "en") -> Set[str]:
     """
     Fetch Wikipedia categories of the target article to enrich semantic keywords.
     """
-    lang = (lang or "en").strip().lower()
+    cat_titles = fetch_target_category_titles(target_slug, lang=lang)
     cat_words: Set[str] = set()
+    for c_title in cat_titles:
+        clean = c_title.replace("Category:", "")
+        words = re.findall(r"\w+", clean.lower())
+        cat_words.update(w for w in words if len(w) > 3)
+    return cat_words
+
+
+def fetch_category_members(cat_title: str, limit: int = 50, lang: str = "en") -> List[Dict[str, str]]:
+    """
+    Fetch mainspace article members belonging to a Wikipedia Category.
+    """
+    lang = (lang or "en").strip().lower()
     headers = {"User-Agent": DEFAULT_USER_AGENT}
+    clean_cat = cat_title.strip()
+    if not clean_cat.startswith("Category:"):
+        clean_cat = f"Category:{clean_cat}"
     url = (
-        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=categories"
-        f"&titles={urllib.parse.quote(target_slug)}&cllimit=50&format=json"
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&list=categorymembers"
+        f"&cmtitle={urllib.parse.quote(clean_cat)}&cmlimit={min(limit, 100)}&cmnamespace=0&format=json"
     )
+    members: List[Dict[str, str]] = []
     try:
         r = requests.get(url, headers=headers, timeout=4).json()
-        pages = r.get("query", {}).get("pages", {})
-        for pid, p in pages.items():
-            for cat in p.get("categories", []):
-                c_title = cat.get("title", "").replace("Category:", "")
-                if any(
-                    ign in c_title.lower()
-                    for ign in [
-                        "articles", "all", "use", "pages", "cs1", "commons",
-                        "short", "statements", "webarchive"
-                    ]
-                ):
-                    continue
-                words = re.findall(r"\w+", c_title.lower())
-                cat_words.update(w for w in words if len(w) > 3)
+        for item in r.get("query", {}).get("categorymembers", []):
+            t = item.get("title", "")
+            if t and not any(t.startswith(p) for p in DISALLOWED_PREFIXES):
+                members.append({"title": t, "slug": t.replace(" ", "_")})
     except Exception as e:
-        logger.warning(f"Failed to fetch categories for {target_slug} ({lang}): {e}")
-    return cat_words
+        logger.debug(f"Failed to fetch members for {cat_title} ({lang}): {e}")
+    return members
+
+
+def fetch_niche_target_bridges(
+    target_slug: str,
+    target_title: str,
+    direct_backlinks: List[Dict[str, str]],
+    lang: str = "en",
+) -> Dict[str, Any]:
+    """
+    Category Bridge Seeding for niche / low-connectivity targets (< 25 backlinks).
+    Analyzes topical categories, identifies core category topic pages, and queries
+    incoming backlinks of the target's direct backlinks to establish verified 2-hop
+    feeder chains.
+    """
+    lang = (lang or "en").strip().lower()
+    headers = {"User-Agent": DEFAULT_USER_AGENT}
+    cat_titles = fetch_target_category_titles(target_slug, lang=lang)
+
+    # 1. Derive candidate topic pages from category titles (e.g. 'Villages in Gloucestershire' -> 'Gloucestershire')
+    category_topics: Set[str] = set()
+    for cat in cat_titles:
+        c_clean = cat.replace("Category:", "").strip()
+        category_topics.add(c_clean)
+        for sep in [" in ", " of ", " from ", " by "]:
+            if sep in c_clean:
+                parent_topic = c_clean.split(sep)[-1].strip()
+                if len(parent_topic) > 2:
+                    category_topics.add(parent_topic)
+
+    # 2. Collect category members (from first 2 topical categories)
+    cat_members: List[Dict[str, str]] = []
+    for cat in cat_titles[:2]:
+        cat_members.extend(fetch_category_members(cat, limit=30, lang=lang))
+
+    cat_member_slugs = {m["slug"].lower(): m for m in cat_members}
+    direct_slugs = {b["slug"].lower() for b in direct_backlinks}
+
+    # 3. Identify direct backlinks that are category members or match category topics
+    boosted_direct = []
+    for b in direct_backlinks:
+        b_slug_l = b["slug"].lower()
+        is_cat_match = b_slug_l in cat_member_slugs or any(t.lower() in b["title"].lower() for t in category_topics)
+        boosted_direct.append({
+            **b,
+            "is_category_bridge": is_cat_match,
+        })
+
+    # 4. Discover 2-hop feeder bridgeheads (parents of direct backlinks)
+    two_hop_bridges: Dict[str, Dict[str, Any]] = {}
+    for b in direct_backlinks[:8]:
+        b_slug = b["slug"]
+        url_p = (
+            f"https://{lang}.wikipedia.org/w/api.php?action=query&list=backlinks"
+            f"&bltitle={urllib.parse.quote(b_slug)}&bllimit=40&blnamespace=0&blfilterredir=nonredirects&format=json"
+        )
+        try:
+            rp = requests.get(url_p, headers=headers, timeout=3).json()
+            for item in rp.get("query", {}).get("backlinks", []):
+                pt = item.get("title", "")
+                ps = pt.replace(" ", "_")
+                ps_lower = ps.lower()
+                if (
+                    ps_lower not in direct_slugs
+                    and ps_lower != target_slug.lower()
+                    and not any(pt.startswith(pfx) for pfx in DISALLOWED_PREFIXES)
+                ):
+                    if ps_lower not in two_hop_bridges:
+                        is_hub = ps_lower in HIGH_CENTRALITY_HUBS
+                        is_cat_rel = ps_lower in cat_member_slugs or any(t.lower() in pt.lower() for t in category_topics)
+                        two_hop_bridges[ps_lower] = {
+                            "parent_slug": ps,
+                            "parent_title": pt,
+                            "bridge_slug": b["slug"],
+                            "bridge_title": b["title"],
+                            "is_hub": is_hub,
+                            "is_category_related": is_cat_rel,
+                        }
+        except Exception:
+            pass
+
+    return {
+        "category_titles": cat_titles,
+        "category_topics": list(category_topics),
+        "boosted_direct": boosted_direct,
+        "two_hop_bridges": two_hop_bridges,
+    }
 
 
 def parse_page_assessment(title: str, raw_assessments: Optional[Dict]) -> Dict:

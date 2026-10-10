@@ -28,7 +28,8 @@ def compute_relevance_score(
     depth: int = 0,
     algorithm: str = "heuristic",
     target_context: Optional[Iterable[str]] = None,
-    target_summary: str = "",
+    target_2hop_feeders: Optional[Set[str]] = None,
+    target_category_bridges: Optional[Set[str]] = None,
     **_ignored,
 ) -> Tuple[float, bool, List[str], str, str, str]:
     """
@@ -71,6 +72,23 @@ def compute_relevance_score(
     # 2. Backlink Hit: Candidate links DIRECTLY to target!
     is_backlink_hit = slug_lower in target_backlinks or link_lower in target_backlinks
     if is_backlink_hit:
+        is_cat_bridge = bool(
+            target_category_bridges
+            and (slug_lower in target_category_bridges or link_lower in target_category_bridges)
+        )
+        if is_cat_bridge:
+            score = 5500.0 - (depth * 10.0)
+            reasons.append("Direct Category Bridge Feeder: Direct backlink aligned with target category topics (+5,500 pts)")
+            reasons.append("Identified in target incoming backlinks & category graph")
+            return (
+                score,
+                True,
+                reasons,
+                "🌟 Category Feeder",
+                "bg-warning text-dark",
+                f"Selected with paramount priority: '{link_title}' is both an incoming backlink and an aligned category bridge to '{target_title}'.",
+            )
+
         score = 5000.0 - (depth * 10.0)
         reasons.append("Direct Feeder Backlink: Guarantees 1-hop path to target (+5,000 pts)")
         reasons.append("Identified in target incoming backlinks graph")
@@ -81,6 +99,27 @@ def compute_relevance_score(
             "⭐ Direct Feeder",
             "bg-warning text-dark",
             f"Selected with highest priority: '{link_title}' was identified in the pre-mapped incoming backlinks graph as an immediate 1-hop feeder to '{target_title}'.",
+        )
+
+    # 2.5 2-Hop Bridge Hit: Candidate links into an immediate 1-hop feeder of target!
+    target_2hop = target_2hop_feeders or set()
+    if slug_lower in target_2hop or link_lower in target_2hop:
+        score = 3200.0 - (depth * 10.0)
+        reasons.append("Verified 2-Hop Bridge: Links into mapped incoming feeder of target (+3,200 pts)")
+        is_cat_rel = bool(
+            target_category_bridges
+            and (slug_lower in target_category_bridges or link_lower in target_category_bridges)
+        )
+        if is_cat_rel:
+            score += 300.0
+            reasons.append("Category-aligned feeder bridge (+300 pts)")
+        return (
+            score,
+            False,
+            reasons,
+            "🌉 2-Hop Bridge",
+            "bg-info text-dark",
+            f"Prioritized as a verified 2-hop bridge: '{link_title}' links into an immediate incoming feeder of '{target_title}', guaranteeing a short path.",
         )
 
     score = 0.0
