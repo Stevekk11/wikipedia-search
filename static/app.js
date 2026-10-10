@@ -1207,6 +1207,13 @@ document.addEventListener("DOMContentLoaded", () => {
             highlightFinalPathInGraph(data.path);
             saveCurrentSearchToHistory("found", data);
 
+        } else if (eventType === "bridge_seeding") {
+            const count = data.new_bridges_count || 0;
+            const total = data.total_bridges_count || count;
+            kpiStatusBadge.textContent = `⚡ Seeded ${count} category bridges (30+ pages explored)`;
+            kpiStatusBadge.className = "badge bg-info text-dark rounded-pill px-3 py-1.5 shadow-sm";
+            console.log(`[WikiHop] Mid-crawl category bridge seeding: ${count} bridges added (total: ${total}).`);
+
         } else if (eventType === "not_found") {
             stopTimer();
             setRunningState(false);

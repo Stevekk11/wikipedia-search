@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from .api import (
     fetch_article_assessments,
+    fetch_extended_mid_crawl_bridges,
     fetch_niche_target_bridges,
     fetch_target_backlinks,
     fetch_target_backlinks_detailed,
@@ -435,8 +436,208 @@ class WikipediaCrawler:
             )
             page = await context.new_page()
 
+            mid_crawl_bridges_seeded = False
             try:
                 while (forward_queue or backward_queue) and visited_count < self.max_pages and not self.cancel_requested:
+                    # Dynamically activate Category Bridge Seeding as soon as 30 or more intermediate pages are loaded without finding a path
+                    if visited_count >= 30 and not mid_crawl_bridges_seeded and not self.cancel_requested:
+                        mid_crawl_bridges_seeded = True
+                        logger.info(
+                            f"Loaded {visited_count} intermediate pages without path. "
+                            f"Immediately triggering dynamic mid-crawl Category Bridge Seeding..."
+                        )
+
+                        loop = asyncio.get_running_loop()
+                        newly_seeded_bridges: Dict[str, Dict[str, Any]] = {}
+                        if not is_niche:
+                            # Target was not initially detected as niche; run category bridge seeding now
+                            dyn_data = await loop.run_in_executor(
+                                None,
+                                fetch_niche_target_bridges,
+                                target_info["slug"],
+                                target_info["title"],
+                                direct_bl_list,
+                                self.lang,
+                            )
+                            newly_seeded_bridges = dyn_data.get("two_hop_bridges", {})
+                            for cat_top in dyn_data.get("category_topics", []):
+                                target_keywords.update(re.findall(r"\w+", cat_top.lower()))
+                                target_category_bridges.add(cat_top.lower())
+                                target_category_bridges.add(cat_top.lower().replace(" ", "_"))
+                        else:
+                            # Niche bridges were already initialized; expand deeper 2-hop / 3-hop bridges from visited backward nodes and remaining direct backlinks
+                            dyn_data = await loop.run_in_executor(
+                                None,
+                                fetch_extended_mid_crawl_bridges,
+                                target_info["slug"],
+                                target_info["title"],
+                                direct_bl_list,
+                                list(backward_visited.keys()),
+                                target_2hop_feeders,
+                                self.lang,
+                            )
+                            newly_seeded_bridges = dyn_data.get("new_bridges", {})
+                            for cat_top in dyn_data.get("category_topics", []):
+                                target_keywords.update(re.findall(r"\w+", cat_top.lower()))
+                                target_category_bridges.add(cat_top.lower())
+                                target_category_bridges.add(cat_top.lower().replace(" ", "_"))
+
+                        # Populate backward_incoming, target_2hop_feeders, and backward_queue with the new bridges
+                        scored_dyn_bridgeheads = []
+                        for p_slug_key, b_info in newly_seeded_bridges.items():
+                            p_slug = b_info["parent_slug"]
+                            p_title = b_info["parent_title"]
+                            bridge_slug = b_info["bridge_slug"]
+                            bridge_title = b_info["bridge_title"]
+                            is_cat_rel = b_info.get("is_category_related", False)
+                            is_hub = b_info.get("is_hub", False)
+
+                            target_2hop_feeders.add(p_slug_key)
+                            target_2hop_feeders.add(p_title.lower())
+                            if is_cat_rel:
+                                target_category_bridges.add(p_slug_key)
+
+                            step_bridge = {
+                                "from_title": p_title,
+                                "from_slug": p_slug,
+                                "from_url": f"https://{self.lang}.wikipedia.org/wiki/{p_slug}",
+                                "to_title": bridge_title,
+                                "to_slug": bridge_slug,
+                                "to_url": f"https://{self.lang}.wikipedia.org/wiki/{bridge_slug}",
+                                "section": "Article Content",
+                                "anchor_text": bridge_title,
+                                "words_before": "",
+                                "words_after": "",
+                                "hop": 1,
+                                "score": 3500.0 if is_cat_rel else 3200.0,
+                                "is_feeder": True,
+                                "badge": "🌉 Dynamic Bridge",
+                                "badge_class": "bg-info text-dark",
+                                "badges": [{"text": "🌉 Dynamic Bridge", "class": "bg-info text-dark"}],
+                                "reasons": [
+                                    f"Dynamic mid-crawl bridge (30+ pages): '{p_title}' links into '{bridge_title}'",
+                                    f"'{bridge_title}' leads toward target '{target_info['title']}'",
+                                ],
+                                "explanation": f"Mid-crawl bridgehead: '{p_title}' links into feeder '{bridge_title}', opening a route toward '{target_info['title']}'.",
+                            }
+
+                            # Fetch or build downstream path to target
+                            if bridge_slug.lower() in backward_incoming:
+                                downstream = backward_incoming[bridge_slug.lower()]
+                                b_titles = [p_title] + downstream["path_titles"]
+                                b_slugs = [p_slug] + downstream["path_slugs"]
+                                b_steps = [step_bridge] + downstream["path_steps"]
+                            else:
+                                step_down = {
+                                    "from_title": bridge_title,
+                                    "from_slug": bridge_slug,
+                                    "from_url": f"https://{self.lang}.wikipedia.org/wiki/{bridge_slug}",
+                                    "to_title": target_info["title"],
+                                    "to_slug": target_info["slug"],
+                                    "to_url": f"https://{self.lang}.wikipedia.org/wiki/{target_info['slug']}",
+                                    "section": "Article Content / References",
+                                    "anchor_text": target_info["title"],
+                                    "words_before": "",
+                                    "words_after": "",
+                                    "hop": 2,
+                                    "score": 5000.0,
+                                    "is_feeder": True,
+                                    "badge": "⭐ Direct Feeder",
+                                    "badge_class": "bg-warning text-dark",
+                                    "badges": [{"text": "⭐ Direct Feeder", "class": "bg-warning text-dark"}],
+                                    "reasons": [f"Direct incoming link into target '{target_info['title']}'"],
+                                    "explanation": f"Direct link to target '{target_info['title']}'.",
+                                }
+                                b_titles = [p_title, bridge_title, target_info["title"]]
+                                b_slugs = [p_slug, bridge_slug, target_info["slug"]]
+                                b_steps = [step_bridge, step_down]
+
+                            backward_incoming[p_slug_key] = {
+                                "parent_slug": p_slug,
+                                "parent_title": p_title,
+                                "step_info": step_bridge,
+                                "path_titles": b_titles,
+                                "path_slugs": b_slugs,
+                                "path_steps": b_steps,
+                            }
+
+                            p_score, _, _, _, _, _ = compute_relevance_score(
+                                p_title,
+                                p_slug,
+                                start_info["title"],
+                                start_info["slug"],
+                                start_keywords,
+                                target_backlinks=set(),
+                                depth=2,
+                                algorithm=self.algorithm,
+                                target_context=start_context,
+                                target_summary=start_summary,
+                            )
+                            if is_cat_rel:
+                                p_score += 150.0
+                            if is_hub:
+                                p_score += 100.0
+
+                            scored_dyn_bridgeheads.append((
+                                p_score,
+                                2,
+                                p_slug,
+                                p_title,
+                                b_titles,
+                                b_slugs,
+                                b_steps,
+                            ))
+
+                        scored_dyn_bridgeheads.sort(key=lambda x: x[0], reverse=True)
+                        for item in scored_dyn_bridgeheads[:20]:
+                            backward_queue.append(item)
+
+                        # Check immediate collision with existing forward frontier!
+                        dyn_collision = None
+                        for p_slug_key in newly_seeded_bridges:
+                            if p_slug_key in forward_visited:
+                                dyn_collision = ("visited", p_slug_key, forward_visited[p_slug_key])
+                                break
+                            if p_slug_key in forward_outgoing:
+                                dyn_collision = ("outgoing", p_slug_key, forward_outgoing[p_slug_key])
+                                break
+
+                        if dyn_collision:
+                            c_type, p_slug_key, f_item = dyn_collision
+                            b_target = backward_incoming[p_slug_key]
+                            p_title = b_target["parent_title"]
+                            if c_type == "visited":
+                                final_path_titles = f_item["path_titles"] + b_target["path_titles"][1:]
+                                final_path_slugs = f_item["path_slugs"] + b_target["path_slugs"][1:]
+                                final_steps = f_item["path_steps"] + b_target["path_steps"]
+                            else:
+                                bridge_step = f_item["step_info"]
+                                bridge_step["badge"] = "🤝 Dynamic Bridge"
+                                bridge_step["badge_class"] = "bg-warning text-dark"
+                                final_path_titles = f_item["path_titles"] + b_target["path_titles"][1:]
+                                final_path_slugs = f_item["path_slugs"] + b_target["path_slugs"][1:]
+                                final_steps = f_item["path_steps"] + b_target["path_steps"]
+
+                            hops = len(final_path_titles) - 1
+                            msg = (
+                                f"Target reached in {hops} hop{'s' if hops != 1 else ''}! "
+                                f"Dynamic bridge seeding met forward frontier on '{p_title}' after inspecting {visited_count} total pages "
+                                f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
+                            )
+                            yield await self._build_found_payload(
+                                page, final_path_titles, final_path_slugs, final_steps,
+                                visited_count, forward_visited, backward_visited, intermediate_pages,
+                                p_title, msg
+                            )
+                            return
+
+                        yield {
+                            "event": "bridge_seeding",
+                            "visited_count": visited_count,
+                            "new_bridges_count": len(newly_seeded_bridges),
+                            "total_bridges_count": len(target_2hop_feeders),
+                            "message": f"Explored {visited_count} intermediate pages without connection: immediately seeded {len(newly_seeded_bridges)} category bridgeheads.",
+                        }
                     # Cardinality balancing: always expand the frontier with the smaller queue,
                     # so a small/starved side (e.g. obscure target with few incoming links)
                     # is exhausted immediately instead of waiting for alternating turns.

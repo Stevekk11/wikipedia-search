@@ -383,6 +383,91 @@ def fetch_niche_target_bridges(
     }
 
 
+def fetch_extended_mid_crawl_bridges(
+    target_slug: str,
+    target_title: str,
+    direct_backlinks: List[Dict[str, str]],
+    backward_visited_slugs: List[str],
+    existing_bridge_slugs: Set[str],
+    lang: str = "en",
+) -> Dict[str, Any]:
+    """
+    Dynamically expands the bridge network when 30+ intermediate pages have been loaded
+    without finding a connecting path.
+    1. Expands remaining uninspected direct backlinks (indices 8 through 25).
+    2. Queries incoming backlinks of backward-visited nodes to establish deeper feeder bridges.
+    3. Fetches additional category members from topical categories of the target.
+    """
+    lang = (lang or "en").strip().lower()
+    headers = {"User-Agent": DEFAULT_USER_AGENT}
+    cat_titles = fetch_target_category_titles(target_slug, lang=lang)
+
+    # Category topics
+    category_topics: Set[str] = set()
+    for cat in cat_titles:
+        c_clean = cat.replace("Category:", "").strip()
+        category_topics.add(c_clean)
+        for sep in [" in ", " of ", " from ", " by "]:
+            if sep in c_clean:
+                parent_topic = c_clean.split(sep)[-1].strip()
+                if len(parent_topic) > 2:
+                    category_topics.add(parent_topic)
+
+    cat_members: List[Dict[str, str]] = []
+    for cat in cat_titles[:4]:
+        cat_members.extend(fetch_category_members(cat, limit=40, lang=lang))
+    cat_member_slugs = {m["slug"].lower(): m for m in cat_members}
+
+    new_bridges: Dict[str, Dict[str, Any]] = {}
+    known_slugs = set(existing_bridge_slugs) | {target_slug.lower()}
+    for b in direct_backlinks:
+        known_slugs.add(b["slug"].lower())
+
+    # 1. Expand secondary direct backlinks (e.g. from index 8 onwards, up to 25)
+    candidates_to_expand = list(direct_backlinks[8:25]) if len(direct_backlinks) > 8 else list(direct_backlinks[:8])
+
+    # Also include backward-visited nodes that are close to target
+    for v_slug in backward_visited_slugs[:6]:
+        if v_slug != target_slug.lower() and not any(b["slug"].lower() == v_slug for b in candidates_to_expand):
+            candidates_to_expand.append({"title": v_slug.replace("_", " "), "slug": v_slug})
+
+    for b in candidates_to_expand:
+        b_slug = b["slug"]
+        url_p = (
+            f"https://{lang}.wikipedia.org/w/api.php?action=query&list=backlinks"
+            f"&bltitle={urllib.parse.quote(b_slug)}&bllimit=40&blnamespace=0&blfilterredir=nonredirects&format=json"
+        )
+        try:
+            rp = requests.get(url_p, headers=headers, timeout=3).json()
+            for item in rp.get("query", {}).get("backlinks", []):
+                pt = item.get("title", "")
+                ps = pt.replace(" ", "_")
+                ps_lower = ps.lower()
+                if (
+                    ps_lower not in known_slugs
+                    and ps_lower not in new_bridges
+                    and not any(pt.startswith(pfx) for pfx in DISALLOWED_PREFIXES)
+                ):
+                    is_hub = ps_lower in HIGH_CENTRALITY_HUBS
+                    is_cat_rel = ps_lower in cat_member_slugs or any(t.lower() in pt.lower() for t in category_topics)
+                    new_bridges[ps_lower] = {
+                        "parent_slug": ps,
+                        "parent_title": pt,
+                        "bridge_slug": b["slug"],
+                        "bridge_title": b["title"],
+                        "is_hub": is_hub,
+                        "is_category_related": is_cat_rel,
+                    }
+        except Exception:
+            pass
+
+    return {
+        "category_titles": cat_titles,
+        "category_topics": list(category_topics),
+        "new_bridges": new_bridges,
+    }
+
+
 def parse_page_assessment(title: str, raw_assessments: Optional[Dict]) -> Dict:
     """
     Parse the raw MediaWiki pageassessments dictionary for an article.
