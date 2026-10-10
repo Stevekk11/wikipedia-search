@@ -178,7 +178,7 @@ def get_wikipedia_info(title_or_slug: str, lang: str = "en") -> Dict[str, str]:
     }
 
 
-def fetch_target_backlinks(target_slug: str, limit: int = 1000, lang: str = "en") -> Set[str]:
+def fetch_target_backlinks(target_slug: str, limit: int = 500, lang: str = "en") -> Set[str]:
     """
     Fetch articles that link directly to the target article (What Links Here).
     Any page linking to these backlinks is guaranteed to be 1 hop away from target!
@@ -188,7 +188,7 @@ def fetch_target_backlinks(target_slug: str, limit: int = 1000, lang: str = "en"
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     url = (
         f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=linkshere"
-        f"&titles={urllib.parse.quote(target_slug)}&lhlimit=500&lhnamespace=0&format=json"
+        f"&titles={urllib.parse.quote(target_slug)}&lhlimit={limit}&lhnamespace=0&format=json"
     )
     try:
         r = requests.get(url, headers=headers, timeout=5).json()

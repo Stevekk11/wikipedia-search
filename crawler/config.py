@@ -264,6 +264,7 @@ DISALLOWED_PREFIXES: List[str] = [
     # -------------------------------------------------------------
     # User
     "Wikipedysta:",
+    "Wikipedie:",
     "Dyskusja_wikipedysty:",
     "Użytkownik:",
     "Uživatel:",
