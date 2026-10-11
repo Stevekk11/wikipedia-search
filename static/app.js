@@ -1454,6 +1454,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let graphTargetId = null;
     let graphViaId = null;
     let graphPathEmergenceTimers = [];
+    let graphSnippetCache = new Map(); // id -> snippet
+    let currentTooltipNodeId = null;
 
     function clearGraphPathTimers() {
         if (graphPathEmergenceTimers && graphPathEmergenceTimers.length) {
@@ -1592,6 +1594,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // Seed with Start and Target anchors
+        const startSnippet = (startInfo && (startInfo.extract || startInfo.description || startInfo.snippet)) || "";
+        const targetSnippet = (targetInfo && (targetInfo.extract || targetInfo.description || targetInfo.snippet)) || "";
+        const viaSnippet = (viaInfo && (viaInfo.extract || viaInfo.description || viaInfo.snippet)) || "";
+
+        if (startSnippet) graphSnippetCache.set(graphStartId, startSnippet);
+        if (targetSnippet) graphSnippetCache.set(graphTargetId, targetSnippet);
+        if (viaSnippet && graphViaId) graphSnippetCache.set(graphViaId, viaSnippet);
+
         addGraphNode({
             id: graphStartId,
             title: graphStartId,
@@ -1600,7 +1610,9 @@ document.addEventListener("DOMContentLoaded", () => {
             x: -180,
             y: 0,
             fx: -180,
-            links_count: 0
+            links_count: 0,
+            snippet: startSnippet,
+            url: (startInfo && startInfo.url) || `https://${appSettings.lang || "en"}.wikipedia.org/wiki/${encodeURIComponent(graphStartId.replace(/ /g, "_"))}`
         });
 
         addGraphNode({
@@ -1611,7 +1623,9 @@ document.addEventListener("DOMContentLoaded", () => {
             x: 180,
             y: 0,
             fx: 180,
-            links_count: 0
+            links_count: 0,
+            snippet: targetSnippet,
+            url: (targetInfo && targetInfo.url) || `https://${appSettings.lang || "en"}.wikipedia.org/wiki/${encodeURIComponent(graphTargetId.replace(/ /g, "_"))}`
         });
 
         // If Via article specified, add it as a prominent milestone anchor
@@ -1624,7 +1638,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 x: 0,
                 y: -60,
                 fx: 0,
-                links_count: 0
+                links_count: 0,
+                snippet: viaSnippet,
+                url: (viaInfo && viaInfo.url) || `https://${appSettings.lang || "en"}.wikipedia.org/wiki/${encodeURIComponent(graphViaId.replace(/ /g, "_"))}`
             });
         }
 
@@ -1633,6 +1649,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function addGraphNode(node) {
+        if (node.snippet) {
+            graphSnippetCache.set(node.id, node.snippet);
+        } else if (graphSnippetCache.has(node.id)) {
+            node.snippet = graphSnippetCache.get(node.id);
+        }
+
         if (graphNodesMap.has(node.id)) {
             // Update node attributes if needed
             const existing = graphNodesMap.get(node.id);
@@ -2100,6 +2122,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function showGraphTooltip(event, d) {
         if (!graphTooltip) return;
+        currentTooltipNodeId = d.id;
+
         const typeLabel = d.type === "start" ? "Start Article" :
                           d.type === "target" ? "Target Article" :
                           d.type === "via" ? "Via Milestone Article" :
@@ -2112,6 +2136,15 @@ document.addEventListener("DOMContentLoaded", () => {
                            d.isFinalPath ? "text-bg-warning text-dark" :
                            d.type === "backward" ? "text-bg-info text-dark" : "text-bg-primary";
 
+        let snippetText = d.snippet || graphSnippetCache.get(d.id) || "";
+
+        let snippetHtml = "";
+        if (snippetText) {
+            snippetHtml = `<div class="text-muted small text-truncate-2" style="font-size: 0.75rem; max-height: 48px; overflow: hidden;" title="${escapeHtml(snippetText)}">${escapeHtml(snippetText)}</div>`;
+        } else {
+            snippetHtml = `<div id="graphTooltipSnippet" class="text-muted small text-truncate-2" style="font-size: 0.75rem; max-height: 48px; overflow: hidden;"><span class="spinner-border spinner-border-sm me-1 text-secondary" style="width: 0.65rem; height: 0.65rem;" role="status"></span>Loading summary...</div>`;
+        }
+
         graphTooltip.innerHTML = `
             <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
                 <span class="badge ${badgeClass} text-uppercase" style="font-size: 0.65rem;">${typeLabel}</span>
@@ -2119,11 +2152,42 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>
             <div class="fw-bold mb-1 text-truncate">${escapeHtml(d.title)}</div>
             ${d.links_count ? `<div class="text-secondary small mb-1"><i class="bi bi-link-45deg"></i> ${d.links_count} links explored</div>` : ""}
-            ${d.snippet ? `<div class="text-muted small text-truncate-2" style="font-size: 0.75rem; max-height: 48px; overflow: hidden;">${escapeHtml(d.snippet)}</div>` : ""}
+            ${snippetHtml}
             <div class="text-primary small mt-1" style="font-size: 0.7rem;"><i class="bi bi-box-arrow-up-right me-1"></i>Click to open in Wikipedia</div>
         `;
         graphTooltip.classList.remove("d-none");
         positionGraphTooltip(event);
+
+        if (!snippetText) {
+            const nodeId = d.id;
+            const nodeTitle = d.title || d.id;
+            const lang = appSettings.lang || "en";
+            fetch(`/api/info?title=${encodeURIComponent(nodeTitle)}&lang=${encodeURIComponent(lang)}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(info => {
+                    const fetchedSnippet = (info && (info.extract || info.description)) ? (info.extract || info.description) : "No summary available.";
+                    d.snippet = fetchedSnippet;
+                    graphSnippetCache.set(nodeId, fetchedSnippet);
+                    if (currentTooltipNodeId === nodeId) {
+                        const snippetEl = document.getElementById("graphTooltipSnippet");
+                        if (snippetEl) {
+                            snippetEl.textContent = fetchedSnippet;
+                            snippetEl.title = fetchedSnippet;
+                        }
+                    }
+                })
+                .catch(() => {
+                    const fallbackSnippet = "No summary available.";
+                    d.snippet = fallbackSnippet;
+                    graphSnippetCache.set(nodeId, fallbackSnippet);
+                    if (currentTooltipNodeId === nodeId) {
+                        const snippetEl = document.getElementById("graphTooltipSnippet");
+                        if (snippetEl) {
+                            snippetEl.textContent = fallbackSnippet;
+                        }
+                    }
+                });
+        }
     }
 
     function positionGraphTooltip(event) {
@@ -2131,8 +2195,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const bounds = graphContainer.getBoundingClientRect();
         const mouseX = event.clientX - bounds.left;
         const mouseY = event.clientY - bounds.top;
-        const ttWidth = 240;
-        const ttHeight = 110;
+        const ttWidth = graphTooltip.offsetWidth || 260;
+        const ttHeight = graphTooltip.offsetHeight || 120;
 
         let left = mouseX + 15;
         let top = mouseY + 15;
@@ -2145,6 +2209,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function hideGraphTooltip() {
+        currentTooltipNodeId = null;
         if (graphTooltip) graphTooltip.classList.add("d-none");
     }
 
@@ -2539,11 +2604,6 @@ document.addEventListener("DOMContentLoaded", () => {
             </td>
             <td>
                 <span class="fw-semibold font-monospace">${page.links_count.toLocaleString()}</span> <span class="text-secondary small ms-1">${(page.links_type === "incoming_backlinks" || page.direction === "backward") ? "backlinks" : "outgoing"}</span>
-            </td>
-            <td>
-                <small class="text-secondary d-inline-block text-truncate" style="max-width: 320px;" title="${escapeHtml(page.snippet)}">
-                    ${formatTextWithMath(page.snippet || "—")}
-                </small>
             </td>
         `;
 

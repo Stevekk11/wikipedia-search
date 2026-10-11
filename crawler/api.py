@@ -232,13 +232,8 @@ def fetch_target_category_titles(target_slug: str, lang: str = "en") -> List[str
     lang = (lang or "en").strip().lower()
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     url = (
-<<<<<<< HEAD
-        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=linkshere"
-        f"&titles={urllib.parse.quote(target_slug)}&lhlimit={limit}&lhnamespace=0&format=json"
-=======
         f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=categories"
         f"&titles={urllib.parse.quote(target_slug)}&cllimit=50&format=json"
->>>>>>> 2a65300 (Implement Improvement 2: Category Bridge Seeding for niche targets)
     )
     categories: List[str] = []
     ignored = [
