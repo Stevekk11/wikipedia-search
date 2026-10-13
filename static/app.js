@@ -2907,10 +2907,20 @@ document.addEventListener("DOMContentLoaded", () => {
         if (intermediateStepsList) intermediateStepsList.innerHTML = "";
         contextCard.classList.add("d-none");
         alertCard.classList.add("d-none");
-        if (pageStatsGraphSection) pageStatsGraphSection.classList.add("d-none");
+        if (pageStatsGraphSection) {
+            try {
+                const offcanvasInstance = bootstrap.Offcanvas.getInstance(pageStatsGraphSection);
+                if (offcanvasInstance) offcanvasInstance.hide();
+            } catch (e) {}
+        }
         if (pageStatsChartInstance) {
             pageStatsChartInstance.destroy();
             pageStatsChartInstance = null;
+        }
+        const statsNavbarBadge = document.getElementById("statsNavbarBadge");
+        if (statsNavbarBadge) {
+            statsNavbarBadge.textContent = "0";
+            statsNavbarBadge.classList.add("d-none");
         }
         visitedTableBody.innerHTML = "";
         intermediateCountBadge.textContent = "0";
@@ -3076,6 +3086,17 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // When Page Statistics offcanvas slides out, ensure Chart.js resizes to fit container width
+    if (pageStatsGraphSection) {
+        pageStatsGraphSection.addEventListener("shown.bs.offcanvas", () => {
+            if (pageStatsChartInstance) {
+                pageStatsChartInstance.resize();
+            } else {
+                renderPageStatsChart();
+            }
+        });
+    }
+
     /**
      * Determine article titles to display based on current scope.
      */
@@ -3131,6 +3152,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (scopeAllCount) {
             const allCount = visitedPagesList.length || (currentFoundPath || []).length;
             scopeAllCount.textContent = allCount;
+        }
+
+        // Update navbar analytics badge
+        const statsNavbarBadge = document.getElementById("statsNavbarBadge");
+        if (statsNavbarBadge) {
+            const count = titles.length;
+            statsNavbarBadge.textContent = count;
+            if (count > 0) statsNavbarBadge.classList.remove("d-none");
         }
 
         // Find titles not in cache

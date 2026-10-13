@@ -78,6 +78,13 @@
                     <span>History</span>
                     <span class="badge rounded-pill bg-primary ms-1 d-none" id="historyCountBadge">0</span>
                 </button>
+                <!-- Article Analytics Slide-Out Modal Button -->
+                <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1 rounded-pill px-3 position-relative" 
+                        data-bs-toggle="offcanvas" data-bs-target="#pageStatsGraphSection" aria-controls="pageStatsGraphSection" id="openStatsOffcanvasBtn" title="View Article Statistics & Analytics">
+                    <i class="bi bi-bar-chart-steps"></i>
+                    <span>Analytics</span>
+                    <span class="badge rounded-pill bg-success ms-1 d-none" id="statsNavbarBadge">0</span>
+                </button>
                 <!-- Settings Button -->
                 <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 rounded-pill px-3" 
                         data-bs-toggle="modal" data-bs-target="#settingsModal" title="Open Crawler & Context Settings">
@@ -429,6 +436,9 @@
                         <h2 class="fw-bold mb-0 text-body-emphasis" id="resultTitle">Start &rarr; Target</h2>
                     </div>
                     <div class="d-flex gap-2">
+                        <button class="btn btn-primary d-flex align-items-center gap-1.5 px-3 py-2" data-bs-toggle="offcanvas" data-bs-target="#pageStatsGraphSection" id="viewStatsResultBtn" title="Open Article Analytics slide-out modal">
+                            <i class="bi bi-bar-chart-steps me-1"></i> Article Analytics
+                        </button>
                         <button class="btn btn-outline-secondary px-3 py-2" id="copyPathBtn" title="Copy path to clipboard">
                             <i class="bi bi-clipboard me-1"></i> Copy Path
                         </button>
@@ -539,152 +549,6 @@
             </div>
         </div>
 
-
-        <!-- Article Analytics & Page Statistics Graphs Section (XTools & MediaWiki) -->
-        <div id="pageStatsGraphSection" class="card border-0 shadow-sm mb-5 d-none overflow-hidden">
-            <div class="card-header bg-body border-bottom py-3.5 px-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="steps-icon-badge" style="width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #10b981;">
-                        <i class="bi bi-bar-chart-steps fs-5"></i>
-                    </div>
-                    <div>
-                        <div class="d-flex align-items-center gap-2">
-                            <h4 class="mb-0 fw-bold">Page Statistics &amp; Article Analytics</h4>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill small px-2.5 py-0.5">
-                                <i class="bi bi-lightning-charge-fill me-1"></i> XTools Powered
-                            </span>
-                        </div>
-                        <div class="text-secondary small">Comparative metrics for visited articles: word count, file size, edit history &amp; community engagement</div>
-                    </div>
-                </div>
-
-                <!-- Scope Filter & Metric Controls -->
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <!-- Scope Toggle: Path Only vs All Explored -->
-                    <div class="btn-group btn-group-sm" role="group" id="statsScopeGroup" aria-label="Statistics Scope">
-                        <input type="radio" class="btn-check" name="statsScope" id="scopePathOnly" autocomplete="off" checked>
-                        <label class="btn btn-outline-primary" for="scopePathOnly" id="scopePathLabel">
-                            <i class="bi bi-signpost-2 me-1"></i> Path Pages (<span id="scopePathCount">0</span>)
-                        </label>
-
-                        <input type="radio" class="btn-check" name="statsScope" id="scopeAllVisited" autocomplete="off">
-                        <label class="btn btn-outline-primary" for="scopeAllVisited" id="scopeAllLabel">
-                            <i class="bi bi-grid-3x3-gap me-1"></i> All Explored (<span id="scopeAllCount">0</span>)
-                        </label>
-                    </div>
-
-                    <!-- Metric Selector Dropdown -->
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1 rounded-pill px-3 fw-semibold" type="button" id="metricViewDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi bi-sliders2 me-1 text-primary"></i>
-                            <span id="activeMetricLabel">Word Count &amp; File Size</span>
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" aria-labelledby="metricViewDropdown">
-                            <li><h6 class="dropdown-header text-uppercase small fw-bold">Select Graph Metric</h6></li>
-                            <li><button class="dropdown-item metric-option active" data-metric="words_size"><i class="bi bi-file-text me-2 text-primary"></i> Word Count &amp; File Size</button></li>
-                            <li><button class="dropdown-item metric-option" data-metric="edits_editors"><i class="bi bi-pencil-square me-2 text-warning"></i> Revisions &amp; Editors</button></li>
-                            <li><button class="dropdown-item metric-option" data-metric="views_watchers"><i class="bi bi-eye me-2 text-info"></i> Pageviews &amp; Watchers</button></li>
-                            <li><button class="dropdown-item metric-option" data-metric="refs_sections"><i class="bi bi-bookmark-check me-2 text-success"></i> References &amp; Sections</button></li>
-                        </ul>
-                    </div>
-
-                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle" id="refreshStatsBtn" title="Refresh Article Statistics" style="width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="card-body p-4 p-md-5">
-                <!-- Summary KPI Row -->
-                <div class="row g-3 mb-4" id="statsKpiRow">
-                    <div class="col-6 col-lg-3">
-                        <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
-                            <div class="text-secondary small fw-semibold mb-1 text-uppercase">
-                                <i class="bi bi-file-earmark-text text-primary me-1"></i> Highest Word Count
-                            </div>
-                            <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopWordsVal">--</div>
-                            <div class="text-muted small text-truncate" id="kpiTopWordsTitle">No data yet</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-lg-3">
-                        <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
-                            <div class="text-secondary small fw-semibold mb-1 text-uppercase">
-                                <i class="bi bi-hdd-network text-success me-1"></i> Largest File Size
-                            </div>
-                            <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopSizeVal">--</div>
-                            <div class="text-muted small text-truncate" id="kpiTopSizeTitle">No data yet</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-lg-3">
-                        <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
-                            <div class="text-secondary small fw-semibold mb-1 text-uppercase">
-                                <i class="bi bi-arrow-repeat text-warning me-1"></i> Most Edited
-                            </div>
-                            <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopEditsVal">--</div>
-                            <div class="text-muted small text-truncate" id="kpiTopEditsTitle">No data yet</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-lg-3">
-                        <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
-                            <div class="text-secondary small fw-semibold mb-1 text-uppercase">
-                                <i class="bi bi-eye text-info me-1"></i> Most 30d Views
-                            </div>
-                            <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopViewsVal">--</div>
-                            <div class="text-muted small text-truncate" id="kpiTopViewsTitle">No data yet</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Interactive Chart Canvas -->
-                <div class="position-relative bg-body rounded-4 p-3 border mb-4" style="min-height: 380px;">
-                    <!-- Loading Spinner Overlay -->
-                    <div id="statsChartLoading" class="position-absolute top-50 start-50 translate-middle text-center d-none" style="z-index: 5;">
-                        <div class="spinner-border text-primary mb-2" role="status">
-                            <span class="visually-hidden">Loading article stats...</span>
-                        </div>
-                        <div class="text-secondary small fw-medium">Fetching XTools page statistics...</div>
-                    </div>
-
-                    <!-- Canvas -->
-                    <div style="height: 360px; width: 100%; position: relative;">
-                        <canvas id="pageStatsChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- Detailed Page Metrics Table (Collapsible) -->
-                <div class="border rounded-3 overflow-hidden">
-                    <button class="btn btn-body w-100 text-start py-2.5 px-3 d-flex align-items-center justify-content-between bg-body-tertiary border-0 text-secondary fw-semibold small" 
-                            type="button" data-bs-toggle="collapse" data-bs-target="#statsTableCollapse" aria-expanded="false" aria-controls="statsTableCollapse">
-                        <span><i class="bi bi-table me-2 text-primary"></i> Detailed Article Metrics Breakdown Table</span>
-                        <i class="bi bi-chevron-down"></i>
-                    </button>
-                    <div class="collapse" id="statsTableCollapse">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0 small text-nowrap" id="statsBreakdownTable">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Article</th>
-                                        <th class="text-end">Words</th>
-                                        <th class="text-end">File Size</th>
-                                        <th class="text-end">Edits (Revisions)</th>
-                                        <th class="text-end">Unique Editors</th>
-                                        <th class="text-end">30d Pageviews</th>
-                                        <th class="text-end">Watchers</th>
-                                        <th class="text-end">Citations</th>
-                                        <th class="text-center">XTools</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="statsTableBody">
-                                    <!-- Injected dynamically -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-
         <!-- Visited Intermediate Pages Section -->
         <div id="intermediateSection" class="card border-0 shadow-sm mb-5 d-none">
             <div class="card-header bg-body border-bottom py-3.5 px-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
@@ -693,8 +557,12 @@
                     <h4 class="mb-0 fw-bold">Intermediate Pages Explored</h4>
                     <span class="badge rounded-pill text-bg-secondary ms-1 fs-6 px-3 py-1" id="intermediateCountBadge">0</span>
                 </div>
-                <!-- Filter Search -->
+                <!-- Filter Search & Analytics Trigger -->
                 <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1.5 rounded-pill px-3" data-bs-toggle="offcanvas" data-bs-target="#pageStatsGraphSection" title="View Article Statistics & Analytics">
+                        <i class="bi bi-bar-chart-steps"></i>
+                        <span class="d-none d-sm-inline">Article Analytics</span>
+                    </button>
                     <div class="input-group" style="max-width: 280px;">
                         <span class="input-group-text bg-body"><i class="bi bi-funnel"></i></span>
                         <input type="text" class="form-control" id="filterInput" placeholder="Filter visited pages...">
@@ -933,6 +801,156 @@
         </p>
         <div class="p-3 rounded-3 bg-body-tertiary border text-secondary small">
             To start again, run: <code class="fw-bold text-primary">python run.py</code>
+        </div>
+    </div>
+
+    <!-- Article Analytics & Page Statistics Slide-Out Modal (Right Side) -->
+    <div class="offcanvas offcanvas-end shadow-lg" tabindex="-1" id="pageStatsGraphSection" aria-labelledby="pageStatsGraphLabel" style="width: 780px; max-width: 95vw;">
+        <div class="offcanvas-header border-bottom py-3 px-4 d-flex flex-column gap-3 bg-body sticky-top">
+            <div class="w-100 d-flex align-items-center justify-content-between gap-2">
+                <div class="d-flex align-items-center gap-2.5">
+                    <div class="steps-icon-badge" style="width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #10b981;">
+                        <i class="bi bi-bar-chart-steps fs-5"></i>
+                    </div>
+                    <div>
+                        <div class="d-flex align-items-center gap-2">
+                            <h5 class="offcanvas-title fw-bold mb-0" id="pageStatsGraphLabel">Page Statistics &amp; Article Analytics</h5>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill small px-2 py-0.5">
+                                <i class="bi bi-lightning-charge-fill me-1"></i> XTools Powered
+                            </span>
+                        </div>
+                        <div class="text-secondary small">Comparative metrics for visited articles: word count, file size, edit history &amp; community engagement</div>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+
+            <!-- Scope Filter & Metric Controls -->
+            <div class="w-100 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                <!-- Scope Toggle: Path Only vs All Explored -->
+                <div class="btn-group btn-group-sm" role="group" id="statsScopeGroup" aria-label="Statistics Scope">
+                    <input type="radio" class="btn-check" name="statsScope" id="scopePathOnly" autocomplete="off" checked>
+                    <label class="btn btn-outline-primary" for="scopePathOnly" id="scopePathLabel">
+                        <i class="bi bi-signpost-2 me-1"></i> Path Pages (<span id="scopePathCount">0</span>)
+                    </label>
+
+                    <input type="radio" class="btn-check" name="statsScope" id="scopeAllVisited" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="scopeAllVisited" id="scopeAllLabel">
+                        <i class="bi bi-grid-3x3-gap me-1"></i> All Explored (<span id="scopeAllCount">0</span>)
+                    </label>
+                </div>
+
+                <!-- Metric Selector Dropdown -->
+                <div class="d-flex align-items-center gap-2">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1 rounded-pill px-3 fw-semibold" type="button" id="metricViewDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-sliders2 me-1 text-primary"></i>
+                            <span id="activeMetricLabel">Word Count &amp; File Size</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" aria-labelledby="metricViewDropdown">
+                            <li><h6 class="dropdown-header text-uppercase small fw-bold">Select Graph Metric</h6></li>
+                            <li><button class="dropdown-item metric-option active" data-metric="words_size"><i class="bi bi-file-text me-2 text-primary"></i> Word Count &amp; File Size</button></li>
+                            <li><button class="dropdown-item metric-option" data-metric="edits_editors"><i class="bi bi-pencil-square me-2 text-warning"></i> Revisions &amp; Editors</button></li>
+                            <li><button class="dropdown-item metric-option" data-metric="views_watchers"><i class="bi bi-eye me-2 text-info"></i> Pageviews &amp; Watchers</button></li>
+                            <li><button class="dropdown-item metric-option" data-metric="refs_sections"><i class="bi bi-bookmark-check me-2 text-success"></i> References &amp; Sections</button></li>
+                        </ul>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle" id="refreshStatsBtn" title="Refresh Article Statistics" style="width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="offcanvas-body p-3 p-md-4">
+            <!-- Summary KPI Row -->
+            <div class="row g-3 mb-4" id="statsKpiRow">
+                <div class="col-6 col-lg-3">
+                    <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
+                        <div class="text-secondary small fw-semibold mb-1 text-uppercase">
+                            <i class="bi bi-file-earmark-text text-primary me-1"></i> Highest Word Count
+                        </div>
+                        <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopWordsVal">--</div>
+                        <div class="text-muted small text-truncate" id="kpiTopWordsTitle">No data yet</div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
+                        <div class="text-secondary small fw-semibold mb-1 text-uppercase">
+                            <i class="bi bi-hdd-network text-success me-1"></i> Largest File Size
+                        </div>
+                        <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopSizeVal">--</div>
+                        <div class="text-muted small text-truncate" id="kpiTopSizeTitle">No data yet</div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
+                        <div class="text-secondary small fw-semibold mb-1 text-uppercase">
+                            <i class="bi bi-arrow-repeat text-warning me-1"></i> Most Edited
+                        </div>
+                        <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopEditsVal">--</div>
+                        <div class="text-muted small text-truncate" id="kpiTopEditsTitle">No data yet</div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="card bg-body-tertiary border-0 p-3 h-100 rounded-3 shadow-none">
+                        <div class="text-secondary small fw-semibold mb-1 text-uppercase">
+                            <i class="bi bi-eye text-info me-1"></i> Most 30d Views
+                        </div>
+                        <div class="fs-4 fw-bold text-body-emphasis" id="kpiTopViewsVal">--</div>
+                        <div class="text-muted small text-truncate" id="kpiTopViewsTitle">No data yet</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Chart Canvas -->
+            <div class="position-relative bg-body rounded-4 p-3 border mb-4" style="min-height: 380px;">
+                <!-- Loading Spinner Overlay -->
+                <div id="statsChartLoading" class="position-absolute top-50 start-50 translate-middle text-center d-none" style="z-index: 5;">
+                    <div class="spinner-border text-primary mb-2" role="status">
+                        <span class="visually-hidden">Loading article stats...</span>
+                    </div>
+                    <div class="text-secondary small fw-medium">Fetching XTools page statistics...</div>
+                </div>
+
+                <!-- Canvas -->
+                <div style="height: 360px; width: 100%; position: relative;">
+                    <canvas id="pageStatsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Detailed Page Metrics Table (Collapsible) -->
+            <div class="border rounded-3 overflow-hidden mb-3">
+                <button class="btn btn-body w-100 text-start py-2.5 px-3 d-flex align-items-center justify-content-between bg-body-tertiary border-0 text-secondary fw-semibold small" 
+                        type="button" data-bs-toggle="collapse" data-bs-target="#statsTableCollapse" aria-expanded="false" aria-controls="statsTableCollapse">
+                    <span><i class="bi bi-table me-2 text-primary"></i> Detailed Article Metrics Breakdown Table</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="collapse" id="statsTableCollapse">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 small text-nowrap" id="statsBreakdownTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Article</th>
+                                    <th class="text-end">Words</th>
+                                    <th class="text-end">File Size</th>
+                                    <th class="text-end">Edits (Revisions)</th>
+                                    <th class="text-end">Unique Editors</th>
+                                    <th class="text-end">30d Pageviews</th>
+                                    <th class="text-end">Watchers</th>
+                                    <th class="text-end">Citations</th>
+                                    <th class="text-center">XTools</th>
+                                </tr>
+                            </thead>
+                            <tbody id="statsTableBody">
+                                <!-- Injected dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 

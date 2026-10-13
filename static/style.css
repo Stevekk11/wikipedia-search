@@ -935,12 +935,20 @@ pre, code {
 }
 
 
-/* Page Statistics & Analytics Graphs Section */
-#pageStatsGraphSection {
-    border-radius: 18px;
+/* Page Statistics & Analytics Slide-Out Modal (Right Side) */
+#pageStatsGraphSection.offcanvas {
+    width: 780px;
+    max-width: 95vw;
+    border-left: 1px solid var(--bs-border-color);
 }
-#pageStatsGraphSection .card-header {
+@media (max-width: 768px) {
+    #pageStatsGraphSection.offcanvas {
+        width: 100vw;
+    }
+}
+#pageStatsGraphSection .offcanvas-header {
     background-color: var(--bs-body-bg) !important;
+    z-index: 10;
 }
 #statsScopeGroup .btn {
     font-size: 0.82rem;
