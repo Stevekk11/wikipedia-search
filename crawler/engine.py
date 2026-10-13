@@ -44,7 +44,7 @@ class WikipediaCrawler:
         start_input: str,
         target_input: str,
         algorithm: str = "heuristic",  # 'heuristic' or 'bfs'
-        max_pages: int = 35,
+        max_pages: int = 50,
         max_depth: int = 5,
         headless: bool = True,
         capture_screenshots: bool = True,
