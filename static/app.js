@@ -116,6 +116,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const graphZoomInBtn = document.getElementById("graphZoomInBtn");
     const graphZoomOutBtn = document.getElementById("graphZoomOutBtn");
     const graphResetBtn = document.getElementById("graphResetBtn");
+    const graphSoundToggleBtn = document.getElementById("graphSoundToggleBtn");
+    const graphSoundIcon = document.getElementById("graphSoundIcon");
 
     // Intermediate Steps Rationale Card
     const intermediateStepsCard = document.getElementById("intermediateStepsCard");
@@ -690,8 +692,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 const sInfo = item.start_info || { title: currentFoundPath[0] || item.start };
                 const tInfo = item.target_info || { title: currentFoundPath[currentFoundPath.length - 1] || item.target };
                 const vInfo = item.via_info || (item.via ? { title: item.via } : null);
-                resetForceGraph(sInfo, tInfo, vInfo);
-                (visitedPagesList || []).forEach(p => recordPageInGraph(p, p.direction));
+                resetForceGraph(sInfo, tInfo, vInfo, true);
+                (visitedPagesList || []).forEach(p => recordPageInGraph(p, p.direction, true));
                 highlightFinalPathInGraph(currentFoundPath, true);
             }
 
@@ -1213,6 +1215,7 @@ document.addEventListener("DOMContentLoaded", () => {
             kpiStatusBadge.textContent = `⚡ Seeded ${count} category bridges (30+ pages explored)`;
             kpiStatusBadge.className = "badge bg-info text-dark rounded-pill px-3 py-1.5 shadow-sm";
             console.log(`[WikiHop] Mid-crawl category bridge seeding: ${count} bridges added (total: ${total}).`);
+            playGraphPop("bridge");
 
         } else if (eventType === "not_found") {
             stopTimer();
@@ -1464,6 +1467,150 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // --- Graph Audio Synthesizer (Pop Sound Effects for Graph Actions) ---
+    const STORAGE_KEY_GRAPH_SOUND = "wikihop-graph-sound";
+    let isGraphSoundEnabled = true;
+    try {
+        const storedSoundPref = localStorage.getItem(STORAGE_KEY_GRAPH_SOUND);
+        if (storedSoundPref !== null) {
+            isGraphSoundEnabled = storedSoundPref === "true";
+        }
+    } catch (_) {}
+
+    let graphAudioCtx = null;
+    let lastGraphPopTime = 0;
+
+    function getGraphAudioContext() {
+        if (!graphAudioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+                graphAudioCtx = new AudioContextClass();
+            }
+        }
+        if (graphAudioCtx && graphAudioCtx.state === "suspended") {
+            graphAudioCtx.resume().catch(() => {});
+        }
+        return graphAudioCtx;
+    }
+
+    function unlockAudioOnInteraction() {
+        getGraphAudioContext();
+    }
+    document.addEventListener("pointerdown", unlockAudioOnInteraction, { passive: true });
+    document.addEventListener("keydown", unlockAudioOnInteraction, { passive: true });
+
+    function updateGraphSoundButtonUI() {
+        if (!graphSoundToggleBtn) return;
+        if (isGraphSoundEnabled) {
+            if (graphSoundIcon) graphSoundIcon.className = "bi bi-volume-up-fill";
+            graphSoundToggleBtn.classList.add("text-primary");
+            graphSoundToggleBtn.title = "Graph Pop Sounds Enabled (Click to Mute)";
+        } else {
+            if (graphSoundIcon) graphSoundIcon.className = "bi bi-volume-mute-fill";
+            graphSoundToggleBtn.classList.remove("text-primary");
+            graphSoundToggleBtn.title = "Graph Pop Sounds Muted (Click to Enable)";
+        }
+    }
+
+    function toggleGraphSound() {
+        isGraphSoundEnabled = !isGraphSoundEnabled;
+        try {
+            localStorage.setItem(STORAGE_KEY_GRAPH_SOUND, String(isGraphSoundEnabled));
+        } catch (_) {}
+        updateGraphSoundButtonUI();
+    }
+
+    /**
+     * Synthesizes and plays a clean, satisfying bubble/cork "pop" sound
+     * exclusively for autonomous graph actions (node spawns, additions, path emergence, bridges).
+     * @param {string} action - 'node' | 'spawn' | 'path-node' | 'bridge'
+     * @param {object} [options] - pitch, volume, index, total, direction
+     */
+    function playGraphPop(action = "node", options = {}) {
+        if (!isGraphSoundEnabled) return;
+        try {
+            const ctx = getGraphAudioContext();
+            if (!ctx) return;
+            if (ctx.state === "suspended") {
+                ctx.resume().catch(() => {});
+            }
+
+            const now = ctx.currentTime;
+            // Throttle rapid successive node additions to prevent audio clutter
+            if (action === "node" && (now - lastGraphPopTime < 0.035)) {
+                return;
+            }
+            lastGraphPopTime = now;
+
+            let startFreq = 800;
+            let endFreq = 160;
+            let duration = 0.055;
+            let volume = 0.22;
+
+            if (action === "spawn") {
+                // Initial anchor nodes spawn in the graph
+                startFreq = 840;
+                endFreq = 180;
+                duration = 0.06;
+                volume = 0.20;
+            } else if (action === "node") {
+                // Exploration node or link appearing on the graph
+                const rand = (Math.random() - 0.5) * 80;
+                const dirMultiplier = options.direction === "backward" ? 1.15 : 1.0;
+                startFreq = (780 + rand) * dirMultiplier;
+                endFreq = (160 + rand * 0.2) * dirMultiplier;
+                duration = 0.05;
+                volume = 0.18;
+            } else if (action === "path-node") {
+                // Winning path emerging node: ascending pitch progression per hop
+                const idx = options.index || 0;
+                const semitoneRatio = Math.pow(2, (idx % 12) / 12);
+                startFreq = 650 * semitoneRatio;
+                endFreq = 180 * Math.min(2.0, semitoneRatio);
+                duration = 0.07;
+                volume = 0.26;
+            } else if (action === "bridge") {
+                // Category bridge seeding in the graph
+                startFreq = 950;
+                endFreq = 220;
+                duration = 0.065;
+                volume = 0.22;
+            }
+
+            if (options.pitch) {
+                startFreq *= options.pitch;
+                endFreq *= options.pitch;
+            }
+            if (options.volume !== undefined) {
+                volume = options.volume;
+            }
+
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.type = "sine";
+
+            // Characteristic bubble/cork pop pitch sweep:
+            // Micro-attack rise (3ms) followed by fast exponential plunge
+            osc.frequency.setValueAtTime(startFreq * 0.75, now);
+            osc.frequency.linearRampToValueAtTime(startFreq, now + 0.003);
+            osc.frequency.exponentialRampToValueAtTime(Math.max(25, endFreq), now + duration);
+
+            // Fast attack and smooth exponential decay
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.linearRampToValueAtTime(volume, now + 0.002);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.start(now);
+            osc.stop(now + duration);
+        } catch (_) {
+            // Browser autoplay restrictions may block audio prior to user gesture
+        }
+    }
+
     function initForceGraph() {
         if (!forceGraphSvg || typeof d3 === "undefined") return;
 
@@ -1550,6 +1697,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 resetGraphView();
             };
         }
+        if (graphSoundToggleBtn) {
+            graphSoundToggleBtn.onclick = () => {
+                toggleGraphSound();
+            };
+            updateGraphSoundButtonUI();
+        }
     }
 
     function resetGraphView() {
@@ -1562,7 +1715,7 @@ document.addEventListener("DOMContentLoaded", () => {
         );
     }
 
-    function resetForceGraph(startInfo, targetInfo, viaInfo) {
+    function resetForceGraph(startInfo, targetInfo, viaInfo, silent = false) {
         clearGraphPathTimers();
         graphData = { nodes: [], links: [] };
         graphNodesMap.clear();
@@ -1646,6 +1799,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         startOrUpdateSimulation();
         resetGraphView();
+
+        // Pop sound when graph spawns initial anchor nodes
+        if (!silent) {
+            playGraphPop("spawn", { pitch: 1.0 });
+            if (graphViaId && graphViaId !== graphStartId && graphViaId !== graphTargetId) {
+                setTimeout(() => playGraphPop("spawn", { pitch: 1.25 }), 120);
+            }
+        }
     }
 
     function addGraphNode(node) {
@@ -1692,7 +1853,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function recordPageInGraph(page, direction) {
+    function recordPageInGraph(page, direction, silent = false) {
         if (!page || !page.title) return;
         if (typeof d3 === "undefined") return;
 
@@ -1705,6 +1866,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const isVia = pageTitle === graphViaId;
         const type = isStart ? "start" : isTarget ? "target" : isVia ? "via" : (direction || "forward");
 
+        const isNewNode = !graphNodesMap.has(pageTitle);
+
         const node = addGraphNode({
             id: pageTitle,
             title: pageTitle,
@@ -1715,6 +1878,7 @@ document.addEventListener("DOMContentLoaded", () => {
             url: page.url || ""
         });
 
+        let newLinksCount = 0;
         // If path_so_far is available, wire the parent-child chain
         const trail = page.path_so_far || [];
         if (trail.length >= 2) {
@@ -1725,15 +1889,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 const dstType = dst === graphTargetId ? "target" : (dst === graphViaId ? "via" : direction);
                 addGraphNode({ id: src, title: src, type: srcType, depth: i });
                 addGraphNode({ id: dst, title: dst, type: dstType, depth: i + 1 });
+                const linkKey = `${src}|${dst}`;
+                if (!graphLinksSet.has(linkKey)) newLinksCount++;
                 addGraphLink(src, dst, direction);
             }
         } else if (trail.length === 1 && trail[0] !== pageTitle) {
             const srcType = trail[0] === graphStartId ? "start" : (trail[0] === graphViaId ? "via" : direction);
             addGraphNode({ id: trail[0], title: trail[0], type: srcType, depth: 0 });
+            const linkKey = `${trail[0]}|${pageTitle}`;
+            if (!graphLinksSet.has(linkKey)) newLinksCount++;
             addGraphLink(trail[0], pageTitle, direction);
         }
 
         updateGraphD3Elements();
+
+        if (!silent && (isNewNode || newLinksCount > 0)) {
+            playGraphPop("node", {
+                direction: direction,
+                depth: page.depth !== undefined ? page.depth : 0,
+            });
+        }
     }
 
     function highlightFinalPathInGraph(pathTitles, immediate = false) {
@@ -1872,6 +2047,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             .attr("stroke-width", 4.2);
                     }
                 }
+
+                // Play pop sound for emerging path node in the graph
+                playGraphPop("path-node", { index: idx, total: pathTitles.length });
 
                 // 5. When all nodes have emerged, focus the camera onto the complete path
                 if (idx === pathTitles.length - 1) {
@@ -2796,4 +2974,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
+
+    updateGraphSoundButtonUI();
 });
