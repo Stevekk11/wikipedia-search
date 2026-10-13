@@ -2,7 +2,7 @@
 FastAPI application for Wikipedia Link Hop Counter using Playwright.
 Provides WebSocket streaming for real-time crawler updates,
 Wikipedia autocomplete API, article assessment scoring API,
-and serves the Bootstrap frontend.
+article statistics & graphs API, and serves the Bootstrap frontend.
 """
 
 import asyncio
@@ -32,6 +32,11 @@ from crawler import (
     get_wikipedia_info,
     fetch_article_assessments,
     fetch_random_article_pair,
+)
+from stats import (
+    fetch_page_stats,
+    fetch_multiple_page_stats,
+    summarize_crawl_stats,
 )
 
 from logging_config import setup_logging
@@ -140,6 +145,42 @@ async def get_article_assessments(
     except Exception as e:
         logger.error(f"Error fetching article assessments for '{titles}' ({lang}): {e}")
         return JSONResponse({}, status_code=500)
+
+
+@app.get("/api/page-stats")
+async def get_page_stats_endpoint(
+    title: str = Query(..., min_length=1, max_length=300),
+    lang: str = Query("en"),
+):
+    """
+    Fetch comprehensive article stats (word count, file size, edit count, etc.)
+    using XTools and MediaWiki APIs.
+    """
+    try:
+        data = await asyncio.to_thread(fetch_page_stats, title, lang=lang)
+        return JSONResponse(data)
+    except Exception as e:
+        logger.error(f"Error fetching page stats for '{title}' ({lang}): {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/batch-page-stats")
+async def get_batch_page_stats_endpoint(
+    titles: str = Query(..., description="Comma or pipe-separated article titles or slugs"),
+    lang: str = Query("en"),
+):
+    """
+    Concurrently fetch article stats for multiple Wikipedia articles visited during a crawl.
+    Returns per-article stats and an aggregated summary for graphs.
+    """
+    try:
+        clean_titles = [t.strip() for t in re.split(r"[,|]", titles) if t.strip()]
+        stats_dict = await asyncio.to_thread(fetch_multiple_page_stats, clean_titles, lang=lang)
+        summary = summarize_crawl_stats(list(stats_dict.values()))
+        return JSONResponse({"stats": stats_dict, "summary": summary})
+    except Exception as e:
+        logger.error(f"Error fetching batch page stats for '{titles}' ({lang}): {e}")
+        return JSONResponse({"error": str(e), "stats": {}, "summary": {}}, status_code=500)
 
 
 _screenshot_semaphore = asyncio.Semaphore(2)

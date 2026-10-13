@@ -933,3 +933,35 @@ pre, code {
         white-space: nowrap;
     }
 }
+
+
+/* Page Statistics & Analytics Graphs Section */
+#pageStatsGraphSection {
+    border-radius: 18px;
+}
+#pageStatsGraphSection .card-header {
+    background-color: var(--bs-body-bg) !important;
+}
+#statsScopeGroup .btn {
+    font-size: 0.82rem;
+    padding: 0.28rem 0.85rem;
+    font-weight: 500;
+}
+.metric-option.active {
+    background-color: var(--bs-primary);
+    color: #ffffff !important;
+    font-weight: 600;
+}
+.metric-option.active i {
+    color: #ffffff !important;
+}
+#statsBreakdownTable th {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+#statsBreakdownTable tbody tr:hover {
+    background-color: rgba(59, 130, 246, 0.05);
+}
