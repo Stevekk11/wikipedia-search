@@ -224,6 +224,34 @@ def fetch_target_backlinks(target_slug: str, limit: int = 500, lang: str = "en")
     return backlinks
 
 
+def fetch_target_redirects(target_slug: str, lang: str = "en") -> Set[str]:
+    """
+    Fetch all redirect titles and slugs that point directly to the target article.
+    Ensures in-page alias links (e.g. 'U.S.' -> 'United_States') are recognized as direct 1-hop matches.
+    """
+    lang = (lang or "en").strip().lower()
+    clean_slug = target_slug.strip().replace(" ", "_")
+    encoded = urllib.parse.quote(clean_slug.replace("_", " "))
+    headers = {"User-Agent": DEFAULT_USER_AGENT}
+    url = (
+        f"https://{lang}.wikipedia.org/w/api.php?action=query&prop=redirects"
+        f"&titles={encoded}&rdlimit=500&format=json"
+    )
+    redirects: Set[str] = set()
+    try:
+        r = requests.get(url, headers=headers, timeout=5).json()
+        pages = r.get("query", {}).get("pages", {})
+        for _, pdata in pages.items():
+            for red in pdata.get("redirects", []):
+                t = red.get("title", "")
+                if t:
+                    redirects.add(t.lower())
+                    redirects.add(t.replace(" ", "_").lower())
+    except Exception as e:
+        logger.warning(f"Failed to fetch redirects for {target_slug} ({lang}): {e}")
+    return redirects
+
+
 def fetch_target_category_titles(target_slug: str, lang: str = "en") -> List[str]:
     """
     Fetch the list of topical Category: titles for a Wikipedia article,

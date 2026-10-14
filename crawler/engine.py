@@ -20,6 +20,7 @@ from .api import (
     fetch_target_backlinks,
     fetch_target_backlinks_detailed,
     fetch_target_categories,
+    fetch_target_redirects,
     get_wikipedia_info,
 )
 from .browser import launch_playwright_browser
@@ -169,14 +170,29 @@ class WikipediaCrawler:
         is_niche = False
         niche_bridges_data: Dict[str, Any] = {}
 
+        target_aliases: Set[str] = {
+            target_slug_lower,
+            target_info["title"].lower(),
+            target_slug_lower.replace("_", " "),
+            target_slug_lower.replace(" ", "_"),
+        }
+        start_aliases: Set[str] = {
+            start_slug_lower,
+            start_info["title"].lower(),
+            start_slug_lower.replace("_", " "),
+            start_slug_lower.replace(" ", "_"),
+        }
+
         if self.algorithm == "heuristic":
             loop = asyncio.get_running_loop()
             t_bl_fut = loop.run_in_executor(None, fetch_target_backlinks_detailed, target_info["slug"], 500, self.lang)
             t_cats_fut = loop.run_in_executor(None, fetch_target_categories, target_info["slug"], self.lang)
             s_cats_fut = loop.run_in_executor(None, fetch_target_categories, start_info["slug"], self.lang)
-            direct_bl_list, target_categories, start_categories = await asyncio.gather(
-                t_bl_fut, t_cats_fut, s_cats_fut
+            t_red_fut = loop.run_in_executor(None, fetch_target_redirects, target_info["slug"], self.lang)
+            direct_bl_list, target_categories, start_categories, target_redirects = await asyncio.gather(
+                t_bl_fut, t_cats_fut, s_cats_fut, t_red_fut
             )
+            target_aliases.update(target_redirects)
             for b in direct_bl_list:
                 target_backlinks.add(b["title"].lower())
                 target_backlinks.add(b["slug"].lower())
@@ -735,26 +751,37 @@ class WikipediaCrawler:
                             "queue_size": len(forward_queue) + len(backward_queue),
                         }
 
-                        # Check meeting condition on all outgoing links from this forward page
+                        # PASS 1: Check ALL outgoing links for direct Target match (1-hop discovery)
                         target_match = None
-                        meeting_hit = None
-
                         for link in extracted_links:
                             l_slug = link["slug"].lower()
-                            l_title = link["title"]
+                            l_title = link["title"].lower()
 
-                            if l_slug == target_slug_lower or l_title.lower() == target_info["title"].lower():
+                            if (
+                                l_slug in target_aliases
+                                or l_title in target_aliases
+                                or l_slug == target_slug_lower
+                                or l_title == target_info["title"].lower()
+                            ):
                                 target_match = link
                                 break
 
-                            if l_slug in backward_visited:
-                                meeting_hit = (link, backward_visited[l_slug])
-                                break
-
-                            if l_slug in backward_incoming:
-                                b_inc = backward_incoming[l_slug]
-                                meeting_hit = (link, b_inc)
-                                break
+                        # Special case: If on Start page and link wasn't parsed in DOM (e.g. collapsed template),
+                        # but Start is in target's pre-mapped direct backlinks, synthesize direct target step.
+                        if not target_match and current_slug.lower() == start_slug_lower:
+                            if (
+                                start_slug_lower in target_backlinks
+                                or start_info["title"].lower() in target_backlinks
+                                or any(b.get("slug", "").lower() == start_slug_lower for b in direct_bl_list)
+                            ):
+                                target_match = {
+                                    "title": target_info["title"],
+                                    "slug": target_info["slug"],
+                                    "section": "Article Content / References",
+                                    "anchor_text": target_info["title"],
+                                    "words_before": "",
+                                    "words_after": "",
+                                }
 
                         # 1. Direct Target Discovery
                         if target_match:
@@ -799,6 +826,23 @@ class WikipediaCrawler:
                                 clean_title, msg
                             )
                             return
+
+                        # PASS 2: Check meeting conditions only if no direct target match exists
+                        meeting_hit = None
+
+                        for link in extracted_links:
+                            l_slug = link["slug"].lower()
+                            if l_slug in backward_visited:
+                                meeting_hit = (link, backward_visited[l_slug])
+                                break
+
+                        if not meeting_hit:
+                            for link in extracted_links:
+                                l_slug = link["slug"].lower()
+                                if l_slug in backward_incoming:
+                                    b_inc = backward_incoming[l_slug]
+                                    meeting_hit = (link, b_inc)
+                                    break
 
                         # 2. Meeting Frontier Collision!
                         if meeting_hit:
@@ -992,7 +1036,12 @@ class WikipediaCrawler:
                         )
 
                         # Check if this backward node is the Start page!
-                        if slug_key == start_slug_lower or clean_title.lower() == start_info["title"].lower():
+                        if (
+                            slug_key in start_aliases
+                            or clean_title.lower() in start_aliases
+                            or slug_key == start_slug_lower
+                            or clean_title.lower() == start_info["title"].lower()
+                        ):
                             final_path_titles = path_titles
                             final_path_slugs = path_slugs
                             final_steps = path_steps
@@ -1046,24 +1095,19 @@ class WikipediaCrawler:
                             "queue_size": len(forward_queue) + len(backward_queue),
                         }
 
-                        # Check meeting condition on incoming backlinks
+                        # PASS 1: Check if Start links directly to this backward node!
                         start_hit = None
-                        forward_hit = None
-
                         for inc in incoming_backlinks:
                             inc_slug = inc["slug"].lower()
-                            inc_title = inc["title"]
+                            inc_title = inc["title"].lower()
 
-                            if inc_slug == start_slug_lower or inc_title.lower() == start_info["title"].lower():
+                            if (
+                                inc_slug in start_aliases
+                                or inc_title in start_aliases
+                                or inc_slug == start_slug_lower
+                                or inc_title == start_info["title"].lower()
+                            ):
                                 start_hit = inc
-                                break
-
-                            if inc_slug in forward_visited:
-                                forward_hit = (inc, forward_visited[inc_slug])
-                                break
-
-                            if inc_slug in forward_outgoing:
-                                forward_hit = (inc, forward_outgoing[inc_slug])
                                 break
 
                         # 1. Start links directly to this backward node!
@@ -1111,6 +1155,21 @@ class WikipediaCrawler:
                                 clean_title, msg
                             )
                             return
+
+                        # PASS 2: Check for forward frontier collisions only if Start is not an incoming backlink
+                        forward_hit = None
+                        for inc in incoming_backlinks:
+                            inc_slug = inc["slug"].lower()
+                            if inc_slug in forward_visited:
+                                forward_hit = (inc, forward_visited[inc_slug])
+                                break
+
+                        if not forward_hit:
+                            for inc in incoming_backlinks:
+                                inc_slug = inc["slug"].lower()
+                                if inc_slug in forward_outgoing:
+                                    forward_hit = (inc, forward_outgoing[inc_slug])
+                                    break
 
                         # 2. Meeting with forward frontier!
                         if forward_hit:

@@ -24,6 +24,7 @@ from .api import (
     fetch_random_article_title,
     fetch_target_backlinks,
     fetch_target_categories,
+    fetch_target_redirects,
     get_wikipedia_info,
     normalize_slug_or_title,
 )
