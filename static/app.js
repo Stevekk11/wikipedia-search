@@ -1,310 +1,80 @@
 /**
- * WikiHop Client Application - Main Entry Point & Orchestrator
- * Coordinates WebSocket streaming, graph visualization, history, and analytics.
+ * WikiHop Client Application
+ * Real-time Wikipedia Link Hop Counter using Playwright & WebSockets
+ * With Settings Modal, 150-word Connecting Link Context, and 10 Recent Searches History
  */
 
-import { initTheme, setupThemeToggle } from "./js/theme.js";
-import { formatTextWithMath, renderMathInContainer } from "./js/math.js";
-import { appSettings, setupSettingsEvents, loadPresets } from "./js/settings.js";
-import { setupAudioControls, playGraphPop } from "./js/audio.js";
-import { fetchAssessmentsForPath } from "./js/assessment.js";
-import {
-    initPathCarouselControls,
-    pathScreenshotCache,
-    setPathScreenshotCache
-} from "./js/carousel.js";
-import {
-    initForceGraph,
-    resetForceGraph,
-    recordPageInGraph,
-    highlightFinalPathInGraph,
-    clearGraphPathTimers,
-    graphSimulation
-} from "./js/graph.js";
-import {
-    loadSearchHistory,
-    saveCurrentSearchToHistory,
-    renderHistoryList,
-    setupHistoryControls,
-    searchHistory,
-    activeHistoryId,
-    setActiveHistoryId,
-    saveHistoryToStorage
-} from "./js/history.js";
-import {
-    initStatsModule,
-    fetchAndRenderPageStats,
-    renderPageStatsChart
-} from "./js/stats.js";
-import {
-    setupAutocomplete,
-    setupRandomButton,
-    setupFormButtons,
-    setupVisitedFilter,
-    setupCopyButtons,
-    setupShutdown,
-    showResultCard,
-    appendVisitedTableRow,
-    openScreenshotModal,
-    showAlert,
-    setRunningState,
-    resetUI,
-    startTimer,
-    stopTimer,
-    initHopChainObserver,
-    renderLiveTrail
-} from "./js/ui.js";
-
-// Application State
-let socket = null;
-let totalLinksAccumulated = 0;
-let visitedPagesList = [];
-let currentFoundPath = [];
-let currentLinkContext = null;
-let currentCrawlParams = {
-    start: "",
-    target: "",
-    algorithm: "heuristic",
-    maxPages: 35,
-    maxDepth: 5,
-    contextWords: 150,
-};
-
-function getRuntimeState() {
-    return {
-        visitedPagesList,
-        currentFoundPath,
-        currentLinkContext,
-        currentCrawlParams,
-        totalLinksAccumulated,
-        appSettings,
-        pathScreenshots: { ...pathScreenshotCache }
-    };
-}
-
-// WebSocket Connection
-function connectWebSocket() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/search`;
-
-    socket = new WebSocket(wsUrl);
-
-    socket.onopen = () => {
-        console.log("WebSocket connected to WikiHop server.");
+document.addEventListener("DOMContentLoaded", () => {
+    // --- Default Settings ---
+    const DEFAULT_SETTINGS = {
+        lang: "en",
+        contextWords: 150,
+        algorithm: "heuristic",
+        maxPages: 35,
+        maxDepth: 5,
+        captureScreenshots: true,
+        adaptiveBalancing: true,
+        headless: true,
     };
 
-    socket.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            handleServerMessage(data);
-        } catch (err) {
-            console.error("Failed to parse WebSocket message:", err);
-        }
+    let appSettings = { ...DEFAULT_SETTINGS };
+
+    // Language metadata lookup
+    const LANG_NAMES = {
+        en: { name: "English", flag: "🇬🇧", label: "EN (English)" },
+        de: { name: "Deutsch", flag: "🇩🇪", label: "DE (Deutsch)" },
+        fr: { name: "Français", flag: "🇫🇷", label: "FR (Français)" },
+        es: { name: "Español", flag: "🇪🇸", label: "ES (Español)" },
+        it: { name: "Italiano", flag: "🇮🇹", label: "IT (Italiano)" },
+        ja: { name: "日本語", flag: "🇯🇵", label: "JA (日本語)" },
+        ru: { name: "Русский", flag: "🇷🇺", label: "RU (Русский)" },
+        zh: { name: "中文", flag: "🇨🇳", label: "ZH (中文)" },
+        pt: { name: "Português", flag: "🇵🇹", label: "PT (Português)" },
+        nl: { name: "Nederlands", flag: "🇳🇱", label: "NL (Nederlands)" },
+        pl: { name: "Polski", flag: "🇵🇱", label: "PL (Polski)" },
     };
 
-    socket.onclose = () => {
-        console.log("WebSocket closed. Attempting reconnect in 2s...");
-        setTimeout(connectWebSocket, 2000);
-    };
-
-    socket.onerror = (err) => {
-        console.error("WebSocket error:", err);
-    };
-}
-
-// Handle Incoming Server Messages
-function handleServerMessage(data) {
-    const eventType = data.event;
-    const kpiPagesSub = document.getElementById("kpiPagesSub");
-    const kpiStatusBadge = document.getElementById("kpiStatusBadge");
-    const statsSection = document.getElementById("statsSection");
-    const liveInspectorCard = document.getElementById("liveInspectorCard");
-    const intermediateSection = document.getElementById("intermediateSection");
-    const liveDirectionBadge = document.getElementById("liveDirectionBadge");
-    const progressBar = document.getElementById("progressBar");
-    const kpiPagesVisited = document.getElementById("kpiPagesVisited");
-    const kpiCurrentDepth = document.getElementById("kpiCurrentDepth");
-    const kpiDepthSub = document.getElementById("kpiDepthSub");
-    const kpiLinksCount = document.getElementById("kpiLinksCount");
-    const kpiLinksSub = document.getElementById("kpiLinksSub");
-    const liveHopBadge = document.getElementById("liveHopBadge");
-    const livePageTitle = document.getElementById("livePageTitle");
-    const livePageLink = document.getElementById("livePageLink");
-    const livePageSnippet = document.getElementById("livePageSnippet");
-    const liveScreenshotImg = document.getElementById("liveScreenshotImg");
-    const noScreenshotPlaceholder = document.getElementById("noScreenshotPlaceholder");
-    const intermediateCountBadge = document.getElementById("intermediateCountBadge");
-    const scopePathOnly = document.getElementById("scopePathOnly");
-    const scopeAllVisited = document.getElementById("scopeAllVisited");
-
-    if (eventType === "started") {
-        setRunningState(true);
-        startTimer();
-        if (kpiPagesSub) kpiPagesSub.textContent = "0 forward \u2022 0 backward";
-        const backlinksCount = data.target_backlinks_count || 0;
-        if (kpiStatusBadge) {
-            if (data.is_niche) {
-                const bridgeCount = data.category_bridges_count || 0;
-                kpiStatusBadge.textContent = `Niche Target: Seeded ${bridgeCount} Category Bridges (${backlinksCount} direct)`;
-            } else {
-                kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
-            }
-        }
-        if (statsSection) statsSection.classList.remove("d-none");
-        if (liveInspectorCard) liveInspectorCard.classList.remove("d-none");
-        if (intermediateSection) intermediateSection.classList.remove("d-none");
-
-        if (liveDirectionBadge) {
-            liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
-            liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
-        }
-
-        resetForceGraph(data.start, data.target, data.via || (currentCrawlParams ? currentCrawlParams.via : null));
-
-    } else if (eventType === "visiting") {
-        const page = data.page;
-        const totalVisited = data.total_visited;
-
-        visitedPagesList.push(page);
-        totalLinksAccumulated += page.links_count || 0;
-
-        const maxPages = appSettings.maxPages;
-        const pct = Math.min(Math.round((totalVisited / maxPages) * 100), 98);
-        if (progressBar) progressBar.style.width = `${pct}%`;
-
-        if (kpiPagesVisited) kpiPagesVisited.textContent = totalVisited;
-        const fCount = data.forward_visited_count !== undefined ? data.forward_visited_count : (page.direction === "forward" ? 1 : 0);
-        const bCount = data.backward_visited_count !== undefined ? data.backward_visited_count : (page.direction === "backward" ? 1 : 0);
-        if (kpiPagesSub) kpiPagesSub.textContent = `${fCount} forward \u2022 ${bCount} backward`;
-        if (kpiCurrentDepth) kpiCurrentDepth.textContent = page.depth;
-        if (kpiDepthSub) kpiDepthSub.textContent = `Hop level ${page.depth}`;
-        if (kpiLinksCount) kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
-        const linkKind = (page.links_type === 'incoming_backlinks' || page.direction === 'backward') ? 'backlinks' : 'outgoing';
-        if (kpiLinksSub) kpiLinksSub.textContent = `+${page.links_count} ${linkKind} on this step`;
-
-        if (liveDirectionBadge) {
-            if (page.direction === "backward") {
-                liveDirectionBadge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle";
-                liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-left-circle me-1"></i> Backward from Target`;
-            } else {
-                liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
-                liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
-            }
-        }
-
-        if (liveHopBadge) liveHopBadge.textContent = `Hop ${page.depth}`;
-        if (livePageTitle) livePageTitle.textContent = page.title;
-        if (livePageLink) livePageLink.href = page.url;
-        if (livePageSnippet) {
-            livePageSnippet.innerHTML = formatTextWithMath(page.snippet || "Playwright loaded page and analyzed internal links.");
-            renderMathInContainer(livePageSnippet);
-        }
-
-        if (page.screenshot && liveScreenshotImg) {
-            liveScreenshotImg.src = page.screenshot;
-            liveScreenshotImg.classList.remove("d-none");
-            if (noScreenshotPlaceholder) noScreenshotPlaceholder.classList.add("d-none");
-            liveScreenshotImg.onclick = () => openScreenshotModal(page.title, page.screenshot);
-        } else if (liveScreenshotImg) {
-            liveScreenshotImg.classList.add("d-none");
-            if (noScreenshotPlaceholder) noScreenshotPlaceholder.classList.remove("d-none");
-        }
-
-        renderLiveTrail(page.path_so_far);
-        appendVisitedTableRow(page);
-        if (intermediateCountBadge) intermediateCountBadge.textContent = visitedPagesList.length;
-
-        recordPageInGraph(page, page.direction);
-
-    } else if (eventType === "found") {
-        stopTimer();
-        setRunningState(false);
-        if (progressBar) {
-            progressBar.style.width = "100%";
-            progressBar.classList.remove("progress-bar-animated");
-            progressBar.classList.add("bg-success");
-        }
-        if (kpiStatusBadge) kpiStatusBadge.textContent = "Path Found!";
-
-        if (data.forward_visited_count !== undefined && data.backward_visited_count !== undefined && kpiPagesSub) {
-            kpiPagesSub.textContent = `${data.forward_visited_count} forward \u2022 ${data.backward_visited_count} backward`;
-        }
-
-        currentFoundPath = data.path;
-        currentLinkContext = data.link_context;
-        setPathScreenshotCache({});
-        showResultCard(data, visitedPagesList, (cache) => {
-            const item = searchHistory.find(h => h.id === activeHistoryId);
-            if (item) {
-                item.path_screenshots = { ...cache };
-                saveHistoryToStorage();
-            }
-        });
-        highlightFinalPathInGraph(data.path);
-        saveCurrentSearchToHistory("found", data, getRuntimeState(), restoreHistoricalSearch);
-        if (scopePathOnly) scopePathOnly.checked = true;
-        fetchAndRenderPageStats();
-
-    } else if (eventType === "bridge_seeding") {
-        const count = data.new_bridges_count || 0;
-        const total = data.total_bridges_count || count;
-        if (kpiStatusBadge) {
-            kpiStatusBadge.textContent = `⚡ Seeded ${count} category bridges (30+ pages explored)`;
-            kpiStatusBadge.className = "badge bg-info text-dark rounded-pill px-3 py-1.5 shadow-sm";
-        }
-        console.log(`[WikiHop] Mid-crawl category bridge seeding: ${count} bridges added (total: ${total}).`);
-        playGraphPop("bridge");
-
-    } else if (eventType === "not_found") {
-        stopTimer();
-        setRunningState(false);
-        if (progressBar) {
-            progressBar.classList.remove("progress-bar-animated");
-            progressBar.classList.add("bg-warning");
-        }
-        if (kpiStatusBadge) kpiStatusBadge.textContent = "Limit reached";
-        showAlert(data.message || "Reached maximum search limit without finding target link.");
-        saveCurrentSearchToHistory("not_found", data, getRuntimeState(), restoreHistoricalSearch);
-        if (visitedPagesList.length > 0) {
-            if (scopeAllVisited) scopeAllVisited.checked = true;
-            fetchAndRenderPageStats();
-        }
-
-    } else if (eventType === "cancelled") {
-        stopTimer();
-        setRunningState(false);
-        if (progressBar) {
-            progressBar.classList.remove("progress-bar-animated");
-            progressBar.classList.add("bg-secondary");
-        }
-        if (kpiStatusBadge) kpiStatusBadge.textContent = "Crawl stopped";
-        showAlert(data.message || "Search stopped by user.");
-        saveCurrentSearchToHistory("cancelled", data, getRuntimeState(), restoreHistoricalSearch);
-        if (visitedPagesList.length > 0) {
-            if (scopeAllVisited) scopeAllVisited.checked = true;
-            fetchAndRenderPageStats();
-        }
-
-    } else if (eventType === "error") {
-        stopTimer();
-        setRunningState(false);
-        if (progressBar) {
-            progressBar.classList.remove("progress-bar-animated");
-            progressBar.classList.add("bg-danger");
-        }
-        if (kpiStatusBadge) kpiStatusBadge.textContent = "Error";
-        showAlert(data.message || "An error occurred during crawling.");
-        saveCurrentSearchToHistory("error", data, getRuntimeState(), restoreHistoricalSearch);
-    }
-}
-
-// Restore a complete historical search
-function restoreHistoricalSearch(item) {
-    const startBtn = document.getElementById("startBtn");
+    // --- DOM Elements ---
+    const searchForm = document.getElementById("searchForm");
     const startInput = document.getElementById("startInput");
     const targetInput = document.getElementById("targetInput");
     const viaInput = document.getElementById("viaInput");
+    const swapBtn = document.getElementById("swapBtn");
+    const startSuggestions = document.getElementById("startSuggestions");
+    const targetSuggestions = document.getElementById("targetSuggestions");
+    const viaSuggestions = document.getElementById("viaSuggestions");
+    const presetsContainer = document.getElementById("presetsContainer");
+
+    const currentLanguageLabel = document.getElementById("currentLanguageLabel");
+    const summaryLanguageBadge = document.getElementById("summaryLanguageBadge");
+    const modalLanguage = document.getElementById("modalLanguage");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const randomBtn = document.getElementById("randomBtn");
+
+    // Settings Modal Elements
+    const modalContextWords = document.getElementById("modalContextWords");
+    const modalContextWordsBadge = document.getElementById("modalContextWordsBadge");
+    const modalAlgorithm = document.getElementById("modalAlgorithm");
+    const modalMaxPages = document.getElementById("modalMaxPages");
+    const modalMaxPagesBadge = document.getElementById("modalMaxPagesBadge");
+    const modalMaxDepth = document.getElementById("modalMaxDepth");
+    const modalMaxDepthBadge = document.getElementById("modalMaxDepthBadge");
+    const modalScreenshotToggle = document.getElementById("modalScreenshotToggle");
+    const modalBalancingToggle = document.getElementById("modalBalancingToggle");
+    const modalHeadlessToggle = document.getElementById("modalHeadlessToggle");
+    const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+    const resetSettingsBtn = document.getElementById("resetSettingsBtn");
+
+    // Summary Badges in Search Card
+    const summaryContextBadge = document.getElementById("summaryContextBadge");
+    const summaryStrategyBadge = document.getElementById("summaryStrategyBadge");
+    const summaryLimitBadge = document.getElementById("summaryLimitBadge");
+
+    // Stats & KPI
     const statsSection = document.getElementById("statsSection");
+    const progressBar = document.getElementById("progressBar");
     const kpiPagesVisited = document.getElementById("kpiPagesVisited");
     const kpiPagesSub = document.getElementById("kpiPagesSub");
     const kpiCurrentDepth = document.getElementById("kpiCurrentDepth");
@@ -313,51 +83,576 @@ function restoreHistoricalSearch(item) {
     const kpiLinksSub = document.getElementById("kpiLinksSub");
     const kpiElapsedTime = document.getElementById("kpiElapsedTime");
     const kpiStatusBadge = document.getElementById("kpiStatusBadge");
-    const progressBar = document.getElementById("progressBar");
-    const visitedTableBody = document.getElementById("visitedTableBody");
-    const intermediateSection = document.getElementById("intermediateSection");
-    const intermediateCountBadge = document.getElementById("intermediateCountBadge");
+
+    // Live Inspector
     const liveInspectorCard = document.getElementById("liveInspectorCard");
     const liveDirectionBadge = document.getElementById("liveDirectionBadge");
     const liveHopBadge = document.getElementById("liveHopBadge");
+    const liveScreenshotImg = document.getElementById("liveScreenshotImg");
+    const noScreenshotPlaceholder = document.getElementById("noScreenshotPlaceholder");
     const livePageTitle = document.getElementById("livePageTitle");
     const livePageLink = document.getElementById("livePageLink");
     const livePageSnippet = document.getElementById("livePageSnippet");
-    const liveScreenshotImg = document.getElementById("liveScreenshotImg");
-    const noScreenshotPlaceholder = document.getElementById("noScreenshotPlaceholder");
+    const livePathTrail = document.getElementById("livePathTrail");
+
+    // Result Card & Hop Chain
     const resultCard = document.getElementById("resultCard");
-    const pathCarouselCard = document.getElementById("pathCarouselCard");
+    const resultHopBadge = document.getElementById("resultHopBadge");
     const resultMeetingBadge = document.getElementById("resultMeetingBadge");
-    const intermediateStepsCard = document.getElementById("intermediateStepsCard");
-    const contextCard = document.getElementById("contextCard");
-    const alertCard = document.getElementById("alertCard");
+    const resultTitle = document.getElementById("resultTitle");
+    const hopChainContainer = document.getElementById("hopChainContainer");
+    const hopChainWrapper = document.getElementById("hopChainWrapper");
+    const resultSummaryText = document.getElementById("resultSummaryText");
+    const copyPathBtn = document.getElementById("copyPathBtn");
+
+    // Force-Directed Graph Visualizer
     const graphCard = document.getElementById("graphCard");
+    const graphContainer = document.getElementById("graphContainer");
+    const forceGraphSvg = document.getElementById("forceGraphSvg");
+    const graphTooltip = document.getElementById("graphTooltip");
+    const graphEmptyState = document.getElementById("graphEmptyState");
+    const graphPathLegend = document.getElementById("graphPathLegend");
+    const graphViaLegend = document.getElementById("graphViaLegend");
+    const graphZoomInBtn = document.getElementById("graphZoomInBtn");
+    const graphZoomOutBtn = document.getElementById("graphZoomOutBtn");
+    const graphResetBtn = document.getElementById("graphResetBtn");
+    const graphSoundToggleBtn = document.getElementById("graphSoundToggleBtn");
+    const graphSoundIcon = document.getElementById("graphSoundIcon");
+
+    // Intermediate Steps Rationale Card
+    const intermediateStepsCard = document.getElementById("intermediateStepsCard");
+    const intermediateStepsList = document.getElementById("intermediateStepsList");
+    const stepsTotalBadge = document.getElementById("stepsTotalBadge");
+
+    // Connecting Link Context Card
+    const contextCard = document.getElementById("contextCard");
+    const contextBadgeWords = document.getElementById("contextBadgeWords");
+    const contextSubTitle = document.getElementById("contextSubTitle");
+    const copyContextBtn = document.getElementById("copyContextBtn");
+    const contextSourceTitle = document.getElementById("contextSourceTitle");
+    const contextTargetTitle = document.getElementById("contextTargetTitle");
+    const contextSourceLink = document.getElementById("contextSourceLink");
+    const contextBefore = document.getElementById("contextBefore");
+    const contextAnchor = document.getElementById("contextAnchor");
+    const contextAfter = document.getElementById("contextAfter");
+    const wordsBeforeCount = document.getElementById("wordsBeforeCount");
+    const wordsAfterCount = document.getElementById("wordsAfterCount");
+
+    // Alert Card
+    const alertCard = document.getElementById("alertCard");
+    const alertMessage = document.getElementById("alertMessage");
+
+    // Intermediate Pages
+    const intermediateSection = document.getElementById("intermediateSection");
+    const intermediateCountBadge = document.getElementById("intermediateCountBadge");
+    const visitedTableBody = document.getElementById("visitedTableBody");
+    const filterInput = document.getElementById("filterInput");
+
+    // Page Statistics & Analytics Graphs Elements
+    const pageStatsGraphSection = document.getElementById("pageStatsGraphSection");
+    const scopePathOnly = document.getElementById("scopePathOnly");
+    const scopeAllVisited = document.getElementById("scopeAllVisited");
+    const scopePathCount = document.getElementById("scopePathCount");
+    const scopeAllCount = document.getElementById("scopeAllCount");
+    const metricViewDropdown = document.getElementById("metricViewDropdown");
+    const activeMetricLabel = document.getElementById("activeMetricLabel");
+    const refreshStatsBtn = document.getElementById("refreshStatsBtn");
+    const statsChartLoading = document.getElementById("statsChartLoading");
+    const pageStatsChartCanvas = document.getElementById("pageStatsChart");
+    const statsTableBody = document.getElementById("statsTableBody");
+    const kpiTopWordsVal = document.getElementById("kpiTopWordsVal");
+    const kpiTopWordsTitle = document.getElementById("kpiTopWordsTitle");
+    const kpiTopSizeVal = document.getElementById("kpiTopSizeVal");
+    const kpiTopSizeTitle = document.getElementById("kpiTopSizeTitle");
+    const kpiTopEditsVal = document.getElementById("kpiTopEditsVal");
+    const kpiTopEditsTitle = document.getElementById("kpiTopEditsTitle");
+    const kpiTopViewsVal = document.getElementById("kpiTopViewsVal");
+    const kpiTopViewsTitle = document.getElementById("kpiTopViewsTitle");
+
+    // Page Statistics Internal State
+    let pageStatsCache = {};
+    let currentActiveMetric = "words_size";
+    let currentStatsScope = "path";
+    let pageStatsChartInstance = null;
+
+    // Screenshot Modal
+    const screenshotModalEl = document.getElementById("screenshotModal");
+    const screenshotModal = new bootstrap.Modal(screenshotModalEl);
+    const modalScreenshotImg = document.getElementById("modalScreenshotImg");
+    const screenshotModalTitle = document.getElementById("screenshotModalTitle");
+
+    // Theme Toggle
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    const themeIcon = document.getElementById("themeIcon");
+
+    // History Offcanvas Elements
     const historyOffcanvasEl = document.getElementById("historyOffcanvas");
+    const historyList = document.getElementById("historyList");
+    const historyEmptyPlaceholder = document.getElementById("historyEmptyPlaceholder");
+    const historyCountBadge = document.getElementById("historyCountBadge");
+    const clearHistoryBtn = document.getElementById("clearHistoryBtn");
 
-    if (socket && socket.readyState === WebSocket.OPEN && startBtn && startBtn.classList.contains("d-none")) {
-        socket.send(JSON.stringify({ action: "stop" }));
+    // Internal State
+    let socket = null;
+    let timerInterval = null;
+    let startTime = null;
+    let totalLinksAccumulated = 0;
+    let visitedPagesList = [];
+    let currentFoundPath = [];
+    let currentLinkContext = null;
+
+    // History State
+    const MAX_HISTORY_ITEMS = 10;
+    const STORAGE_KEY_HISTORY = "wikihop-search-history";
+    let searchHistory = [];
+    let activeHistoryId = null;
+    let currentCrawlParams = {
+        start: "",
+        target: "",
+        algorithm: "heuristic",
+        maxPages: 35,
+        maxDepth: 5,
+        contextWords: 150,
+    };
+
+    // --- Load & Save Settings ---
+    function loadSavedSettings() {
+        try {
+            const raw = localStorage.getItem("wikihop-settings");
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                appSettings = { ...DEFAULT_SETTINGS, ...parsed };
+            }
+        } catch (e) {
+            console.error("Error reading saved settings:", e);
+        }
+        syncSettingsToUI();
     }
-    setRunningState(false);
-    stopTimer();
 
-    if (startInput) startInput.value = item.start;
-    if (targetInput) targetInput.value = item.target;
-    if (viaInput) viaInput.value = item.via || "";
+    function saveSettings() {
+        appSettings.lang = (modalLanguage ? modalLanguage.value : appSettings.lang) || "en";
+        appSettings.contextWords = parseInt(modalContextWords.value) || 150;
+        appSettings.algorithm = modalAlgorithm.value;
+        appSettings.maxPages = parseInt(modalMaxPages.value) || 35;
+        appSettings.maxDepth = parseInt(modalMaxDepth.value) || 5;
+        appSettings.captureScreenshots = modalScreenshotToggle.checked;
+        appSettings.adaptiveBalancing = modalBalancingToggle.checked;
+        appSettings.headless = modalHeadlessToggle.checked;
 
-    if (statsSection) statsSection.classList.remove("d-none");
-    if (kpiPagesVisited) kpiPagesVisited.textContent = item.total_visited;
-    if (kpiPagesSub) kpiPagesSub.textContent = item.kpi_pages_sub || `${item.forward_visited_count || 0} forward \u2022 ${item.backward_visited_count || 0} backward`;
+        localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
+        syncSettingsToUI();
+        loadPresets();
+    }
 
-    const hopsOrDepth = item.result_data ? item.result_data.hops : item.max_depth_reached;
-    if (kpiCurrentDepth) kpiCurrentDepth.textContent = hopsOrDepth !== undefined ? hopsOrDepth : 0;
-    if (kpiDepthSub) kpiDepthSub.textContent = item.kpi_depth_sub || (item.result_data ? `Hops: ${item.result_data.hops}` : `Max hop ${item.max_depth_reached || 0}`);
+    function setLanguage(newLang) {
+        if (!newLang) return;
+        newLang = newLang.toLowerCase().trim();
+        appSettings.lang = newLang;
+        localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
+        syncSettingsToUI();
+        loadPresets();
 
-    if (kpiLinksCount) kpiLinksCount.textContent = (item.total_links_accumulated || 0).toLocaleString();
-    if (kpiLinksSub) kpiLinksSub.textContent = item.kpi_links_sub || "Recorded search";
-    if (kpiElapsedTime) kpiElapsedTime.textContent = item.elapsed || "0.0s";
-    if (kpiStatusBadge) kpiStatusBadge.textContent = item.status_badge_text || (item.status === "found" ? "Path Found!" : item.status);
+        // Update active class on dropdown options
+        document.querySelectorAll(".lang-option").forEach((opt) => {
+            if (opt.getAttribute("data-lang") === newLang) {
+                opt.classList.add("active");
+            } else {
+                opt.classList.remove("active");
+            }
+        });
+    }
 
-    if (progressBar) {
+    function syncSettingsToUI() {
+        const langCode = appSettings.lang || "en";
+        const langMeta = LANG_NAMES[langCode] || { name: langCode.toUpperCase(), flag: "🌐", label: `${langCode.toUpperCase()} (${langCode}.wikipedia.org)` };
+
+        // Language Dropdown Label in Navbar
+        if (currentLanguageLabel) {
+            currentLanguageLabel.innerHTML = `${langMeta.flag} ${langCode.toUpperCase()} (${langMeta.name})`;
+        }
+
+        // Summary Badge in Search Card
+        if (summaryLanguageBadge) {
+            summaryLanguageBadge.innerHTML = `<i class="bi bi-globe2 me-1"></i> Edition: ${langCode}.wikipedia.org`;
+        }
+
+        // Modal inputs
+        if (modalLanguage) {
+            modalLanguage.value = langCode;
+            if (!modalLanguage.value) {
+                // If custom language is selected
+                let customOpt = modalLanguage.querySelector(`option[value="${langCode}"]`);
+                if (!customOpt) {
+                    customOpt = document.createElement("option");
+                    customOpt.value = langCode;
+                    customOpt.textContent = `🌐 ${langCode} (${langCode}.wikipedia.org)`;
+                    modalLanguage.appendChild(customOpt);
+                }
+                modalLanguage.value = langCode;
+            }
+        }
+
+        modalContextWords.value = appSettings.contextWords;
+        modalContextWordsBadge.textContent = `${appSettings.contextWords} words`;
+        modalAlgorithm.value = appSettings.algorithm;
+        modalMaxPages.value = appSettings.maxPages;
+        modalMaxPagesBadge.textContent = appSettings.maxPages;
+        modalMaxDepth.value = appSettings.maxDepth;
+        modalMaxDepthBadge.textContent = appSettings.maxDepth;
+        modalScreenshotToggle.checked = appSettings.captureScreenshots;
+        modalBalancingToggle.checked = appSettings.adaptiveBalancing !== false;
+        modalHeadlessToggle.checked = appSettings.headless;
+
+        // Summary Badges
+        summaryContextBadge.innerHTML = `<i class="bi bi-quote me-1"></i> Context: ${appSettings.contextWords} words`;
+        summaryStrategyBadge.innerHTML = `<i class="bi bi-cpu me-1"></i> ${appSettings.algorithm === "heuristic" ? "Bidirectional Smart A*" : "Bidirectional BFS"}`;
+        summaryLimitBadge.innerHTML = `<i class="bi bi-speedometer2 me-1"></i> Max ${appSettings.maxPages} Pages`;
+
+        // On/off toggle badges (green = on, grey = off)
+        const toggleBadges = [
+            ["summaryScreenshotsBadge", "bi-camera", "Screenshots", appSettings.captureScreenshots],
+            ["summaryBalancingBadge", "bi-sliders2", "Adaptive Balancing", appSettings.adaptiveBalancing !== false],
+            ["summaryHeadlessBadge", "bi-window", "Headless", !!appSettings.headless],
+        ];
+        toggleBadges.forEach(([id, icon, label, on]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = `badge ${on ? "text-bg-success" : "text-bg-secondary"}`;
+            el.innerHTML = `<i class="bi ${icon} me-1"></i> ${label}: ${on ? "On" : "Off"}`;
+        });
+
+        // Update Random Button state (works for every Wikipedia edition via Special:Random)
+        if (randomBtn) {
+            const isRunning = startBtn && startBtn.classList.contains("d-none");
+            randomBtn.title = `Select two random articles (${langCode}.wikipedia.org)`;
+            if (!isRunning) {
+                randomBtn.disabled = false;
+                randomBtn.classList.remove("disabled", "opacity-50");
+            }
+        }
+    }
+
+    // Bind Navbar Language Switcher Dropdown
+    document.querySelectorAll(".lang-option").forEach((opt) => {
+        opt.addEventListener("click", (e) => {
+            e.preventDefault();
+            const chosen = opt.getAttribute("data-lang");
+            if (chosen === "custom") {
+                const customCode = prompt("Enter ISO 639-1 language code for Wikipedia (e.g., 'sv', 'ko', 'ar', 'uk', 'he'):", "en");
+                if (customCode && customCode.trim()) {
+                    setLanguage(customCode.trim().toLowerCase());
+                }
+            } else {
+                setLanguage(chosen);
+            }
+        });
+    });
+
+    if (modalLanguage) {
+        modalLanguage.addEventListener("change", (e) => {
+            setLanguage(e.target.value);
+        });
+    }
+
+    modalContextWords.addEventListener("input", (e) => {
+        modalContextWordsBadge.textContent = `${e.target.value} words`;
+    });
+    modalMaxPages.addEventListener("input", (e) => {
+        modalMaxPagesBadge.textContent = e.target.value;
+    });
+    modalMaxDepth.addEventListener("input", (e) => {
+        modalMaxDepthBadge.textContent = e.target.value;
+    });
+
+    saveSettingsBtn.addEventListener("click", () => {
+        saveSettings();
+    });
+
+    resetSettingsBtn.addEventListener("click", () => {
+        appSettings = { ...DEFAULT_SETTINGS };
+        localStorage.removeItem("wikihop-settings");
+        syncSettingsToUI();
+    });
+
+    loadSavedSettings();
+
+    // --- History Handling (Last 10 Searches) ---
+    // History is stored in IndexedDB (localStorage's ~5MB quota was too small for
+    // screenshots, and the old quota fallback permanently stripped older entries).
+    const HISTORY_DB_NAME = "wikihop-db";
+    const HISTORY_STORE = "kv";
+    let historyDbPromise = null;
+
+    function openHistoryDb() {
+        if (!historyDbPromise) {
+            historyDbPromise = new Promise((resolve, reject) => {
+                if (!window.indexedDB) return reject(new Error("IndexedDB unavailable"));
+                const req = indexedDB.open(HISTORY_DB_NAME, 1);
+                req.onupgradeneeded = () => req.result.createObjectStore(HISTORY_STORE);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+        return historyDbPromise;
+    }
+
+    function historyDbGet() {
+        return openHistoryDb().then(db => new Promise((resolve, reject) => {
+            const req = db.transaction(HISTORY_STORE, "readonly").objectStore(HISTORY_STORE).get(STORAGE_KEY_HISTORY);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        }));
+    }
+
+    function historyDbSet(value) {
+        return openHistoryDb().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(HISTORY_STORE, "readwrite");
+            tx.objectStore(HISTORY_STORE).put(value, STORAGE_KEY_HISTORY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+        }));
+    }
+
+    function readLegacyLocalHistory() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+            const parsed = raw ? JSON.parse(raw) : null;
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            console.error("Error reading search history from localStorage:", e);
+            return [];
+        }
+    }
+
+    async function loadSearchHistory() {
+        let loaded = null;
+        try {
+            const stored = await historyDbGet();
+            if (Array.isArray(stored)) loaded = stored;
+        } catch (e) {
+            console.warn("IndexedDB history unavailable, using localStorage:", e);
+        }
+        if (loaded === null || loaded.length === 0) {
+            // Migrate / fall back to legacy localStorage history
+            const legacy = readLegacyLocalHistory();
+            if (legacy.length) {
+                loaded = legacy;
+                historyDbSet(legacy).then(() => localStorage.removeItem(STORAGE_KEY_HISTORY)).catch(() => {});
+            }
+        }
+        // Keep any record saved while loading was still in progress
+        const pending = searchHistory.filter(r => !(loaded || []).some(l => l.id === r.id));
+        searchHistory = [...pending, ...(loaded || [])].slice(0, MAX_HISTORY_ITEMS);
+        renderHistoryList();
+    }
+
+    function saveHistoryToLocalStorage() {
+        try {
+            localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(searchHistory));
+        } catch (e) {
+            console.warn("Storage quota warning, stripping screenshots to preserve metadata:", e);
+            // Keep screenshots on newest item only
+            const pruned = searchHistory.map((item, idx) => {
+                if (idx > 0 && Array.isArray(item.visited_pages)) {
+                    return {
+                        ...item,
+                        visited_pages: item.visited_pages.map(p => {
+                            const { screenshot, ...rest } = p;
+                            return rest;
+                        })
+                    };
+                }
+                return item;
+            });
+            try {
+                localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(pruned));
+            } catch (e2) {
+                console.error("Failed to store search history:", e2);
+            }
+        }
+    }
+
+    function saveHistoryToStorage() {
+        // Structured clone keeps everything (including screenshots) intact.
+        historyDbSet(searchHistory).catch(e => {
+            console.warn("IndexedDB save failed, falling back to localStorage:", e);
+            saveHistoryToLocalStorage();
+        });
+    }
+
+    function saveCurrentSearchToHistory(status, extraData = {}) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const dateStr = now.toLocaleDateString([], { month: "short", day: "numeric" });
+
+        const fCount = extraData.forward_visited_count !== undefined
+            ? extraData.forward_visited_count
+            : visitedPagesList.filter(p => p.direction !== "backward").length;
+        const bCount = extraData.backward_visited_count !== undefined
+            ? extraData.backward_visited_count
+            : visitedPagesList.filter(p => p.direction === "backward").length;
+
+        const maxDepthReached = visitedPagesList.reduce((max, p) => Math.max(max, p.depth || 0), 0);
+
+        const newRecord = {
+            id: Date.now() + "-" + Math.random().toString(36).substring(2, 7),
+            time: timeStr,
+            date: dateStr,
+            start: currentCrawlParams.start || startInput.value.trim(),
+            target: currentCrawlParams.target || targetInput.value.trim(),
+            via: currentCrawlParams.via || "",
+            algorithm: currentCrawlParams.algorithm || appSettings.algorithm,
+            max_pages: currentCrawlParams.maxPages || appSettings.maxPages,
+            max_depth: currentCrawlParams.maxDepth || appSettings.maxDepth,
+            context_words: currentCrawlParams.contextWords || appSettings.contextWords,
+            status: status, // "found" | "not_found" | "cancelled" | "error"
+            status_badge_text: kpiStatusBadge.textContent,
+            message: extraData.message || "",
+            elapsed: kpiElapsedTime.textContent || "0.0s",
+            total_visited: visitedPagesList.length,
+            forward_visited_count: fCount,
+            backward_visited_count: bCount,
+            total_links_accumulated: totalLinksAccumulated,
+            kpi_pages_sub: kpiPagesSub.textContent,
+            kpi_depth_sub: kpiDepthSub.textContent,
+            kpi_links_sub: kpiLinksSub.textContent,
+            max_depth_reached: maxDepthReached,
+            result_data: status === "found" ? extraData : null,
+            visited_pages: visitedPagesList.map(p => ({ ...p }))
+        };
+
+        // Add to front of history list, enforce maximum 10 items
+        searchHistory.unshift(newRecord);
+        if (searchHistory.length > MAX_HISTORY_ITEMS) {
+            searchHistory = searchHistory.slice(0, MAX_HISTORY_ITEMS);
+        }
+
+        activeHistoryId = newRecord.id;
+        saveHistoryToStorage();
+        renderHistoryList();
+    }
+
+    function renderHistoryList() {
+        if (!historyList) return;
+        historyList.innerHTML = "";
+
+        const count = searchHistory.length;
+        if (historyCountBadge) {
+            historyCountBadge.textContent = count;
+            if (count > 0) {
+                historyCountBadge.classList.remove("d-none");
+            } else {
+                historyCountBadge.classList.add("d-none");
+            }
+        }
+
+        if (clearHistoryBtn) {
+            clearHistoryBtn.disabled = count === 0;
+        }
+
+        if (count === 0) {
+            if (historyEmptyPlaceholder) historyEmptyPlaceholder.classList.remove("d-none");
+            return;
+        }
+
+        if (historyEmptyPlaceholder) historyEmptyPlaceholder.classList.add("d-none");
+
+        searchHistory.forEach((item) => {
+            let statusLabel = "";
+            let badgeClass = "";
+            if (item.status === "found") {
+                const hops = item.result_data ? item.result_data.hops : "?";
+                statusLabel = `${hops} Hop${hops === 1 ? "" : "s"}`;
+                badgeClass = "bg-success-subtle text-success-emphasis border border-success-subtle";
+            } else if (item.status === "not_found") {
+                statusLabel = "Limit Reached";
+                badgeClass = "bg-warning-subtle text-warning-emphasis border border-warning-subtle";
+            } else if (item.status === "cancelled") {
+                statusLabel = "Stopped";
+                badgeClass = "bg-secondary-subtle text-secondary border";
+            } else {
+                statusLabel = "Error";
+                badgeClass = "bg-danger-subtle text-danger-emphasis border border-danger-subtle";
+            }
+
+            const isActive = activeHistoryId === item.id;
+            const card = document.createElement("div");
+            card.className = `card p-3 shadow-sm history-item status-${item.status} ${isActive ? "active-history" : ""}`;
+            card.style.cursor = "pointer";
+
+            card.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between mb-1">
+                    <span class="badge ${badgeClass} rounded-pill px-2 py-1" style="font-size: 0.75rem;">
+                        ${statusLabel}
+                    </span>
+                    <small class="text-secondary font-monospace" style="font-size: 0.72rem;">
+                        ${item.date} ${item.time} &bull; ${item.elapsed}
+                    </small>
+                </div>
+                <div class="fw-bold text-body-emphasis text-truncate mb-1" style="font-size: 0.9rem;" title="${escapeHtml(item.start)} \u2192 ${escapeHtml(item.target)}">
+                    ${escapeHtml(item.start)} <i class="bi bi-arrow-right text-primary mx-1"></i> ${escapeHtml(item.target)}
+                </div>
+                <div class="d-flex align-items-center justify-content-between text-secondary small" style="font-size: 0.76rem;">
+                    <span><i class="bi bi-file-earmark-text me-1"></i>${item.total_visited} pages</span>
+                    <span><i class="bi bi-cpu me-1"></i>${item.algorithm === 'heuristic' ? 'Smart A*' : 'BFS'}</span>
+                    <button type="button" class="btn btn-link btn-sm text-danger p-0 delete-item-btn" title="Delete this search" style="line-height: 1;">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                </div>
+            `;
+
+            // Single item deletion
+            const delBtn = card.querySelector(".delete-item-btn");
+            if (delBtn) {
+                delBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    searchHistory = searchHistory.filter(h => h.id !== item.id);
+                    if (activeHistoryId === item.id) activeHistoryId = null;
+                    saveHistoryToStorage();
+                    renderHistoryList();
+                });
+            }
+
+            // Restore complete historical search when clicked
+            card.addEventListener("click", () => {
+                activeHistoryId = item.id;
+                renderHistoryList();
+                restoreHistoricalSearch(item);
+            });
+
+            historyList.appendChild(card);
+        });
+    }
+
+    function restoreHistoricalSearch(item) {
+        // Stop any running search safely
+        if (socket && socket.readyState === WebSocket.OPEN && startBtn.classList.contains("d-none")) {
+            socket.send(JSON.stringify({ action: "stop" }));
+        }
+        setRunningState(false);
+        stopTimer();
+
+        // Populate search inputs
+        startInput.value = item.start;
+        targetInput.value = item.target;
+        if (viaInput) viaInput.value = item.via || "";
+
+        // Restore KPI & stats counters
+        statsSection.classList.remove("d-none");
+        kpiPagesVisited.textContent = item.total_visited;
+        kpiPagesSub.textContent = item.kpi_pages_sub || `${item.forward_visited_count || 0} forward \u2022 ${item.backward_visited_count || 0} backward`;
+
+        const hopsOrDepth = item.result_data ? item.result_data.hops : item.max_depth_reached;
+        kpiCurrentDepth.textContent = hopsOrDepth !== undefined ? hopsOrDepth : 0;
+        kpiDepthSub.textContent = item.kpi_depth_sub || (item.result_data ? `Hops: ${item.result_data.hops}` : `Max hop ${item.max_depth_reached || 0}`);
+
+        kpiLinksCount.textContent = (item.total_links_accumulated || 0).toLocaleString();
+        kpiLinksSub.textContent = item.kpi_links_sub || "Recorded search";
+        kpiElapsedTime.textContent = item.elapsed || "0.0s";
+        kpiStatusBadge.textContent = item.status_badge_text || (item.status === "found" ? "Path Found!" : item.status);
+
+        // Restore progress bar
         progressBar.style.width = "100%";
         progressBar.classList.remove("progress-bar-animated");
         if (item.status === "found") {
@@ -369,203 +664,2973 @@ function restoreHistoricalSearch(item) {
         } else {
             progressBar.className = "progress-bar bg-danger";
         }
-    }
 
-    visitedPagesList = item.visited_pages ? [...item.visited_pages] : [];
-    totalLinksAccumulated = item.total_links_accumulated || 0;
-    if (visitedTableBody) visitedTableBody.innerHTML = "";
+        // Restore visited pages table & inspector
+        visitedPagesList = item.visited_pages ? [...item.visited_pages] : [];
+        totalLinksAccumulated = item.total_links_accumulated || 0;
+        visitedTableBody.innerHTML = "";
 
-    if (visitedPagesList.length > 0) {
-        if (intermediateSection) intermediateSection.classList.remove("d-none");
-        if (intermediateCountBadge) intermediateCountBadge.textContent = visitedPagesList.length;
-        visitedPagesList.forEach(p => appendVisitedTableRow(p));
+        if (visitedPagesList.length > 0) {
+            intermediateSection.classList.remove("d-none");
+            intermediateCountBadge.textContent = visitedPagesList.length;
+            visitedPagesList.forEach(p => appendVisitedTableRow(p));
 
-        if (liveInspectorCard) liveInspectorCard.classList.remove("d-none");
-        const lastPage = visitedPagesList[visitedPagesList.length - 1];
-        if (liveDirectionBadge) {
-            if (lastPage.direction === "backward") {
-                liveDirectionBadge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle";
-                liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-left-circle me-1"></i> Backward from Target`;
-            } else {
-                liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
-                liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+            liveInspectorCard.classList.remove("d-none");
+            const lastPage = visitedPagesList[visitedPagesList.length - 1];
+            if (liveDirectionBadge) {
+                if (lastPage.direction === "backward") {
+                    liveDirectionBadge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-left-circle me-1"></i> Backward from Target`;
+                } else {
+                    liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+                }
             }
-        }
-        if (liveHopBadge) liveHopBadge.textContent = `Hop ${lastPage.depth}`;
-        if (livePageTitle) livePageTitle.textContent = lastPage.title;
-        if (livePageLink) livePageLink.href = lastPage.url;
-        if (livePageSnippet) {
+            liveHopBadge.textContent = `Hop ${lastPage.depth}`;
+            livePageTitle.textContent = lastPage.title;
+            livePageLink.href = lastPage.url;
             livePageSnippet.innerHTML = formatTextWithMath(lastPage.snippet || "Playwright inspected page.");
             renderMathInContainer(livePageSnippet);
-        }
-        if (lastPage.screenshot && liveScreenshotImg) {
-            liveScreenshotImg.src = lastPage.screenshot;
-            liveScreenshotImg.classList.remove("d-none");
-            if (noScreenshotPlaceholder) noScreenshotPlaceholder.classList.add("d-none");
-            liveScreenshotImg.onclick = () => openScreenshotModal(lastPage.title, lastPage.screenshot);
-        } else if (liveScreenshotImg) {
-            liveScreenshotImg.classList.add("d-none");
-            if (noScreenshotPlaceholder) noScreenshotPlaceholder.classList.remove("d-none");
-        }
-        renderLiveTrail(lastPage.path_so_far);
-    } else {
-        if (intermediateSection) intermediateSection.classList.add("d-none");
-        if (liveInspectorCard) liveInspectorCard.classList.add("d-none");
-    }
-
-    if (item.status === "found" && item.result_data) {
-        if (alertCard) alertCard.classList.add("d-none");
-        setPathScreenshotCache(item.path_screenshots || {});
-        currentFoundPath = item.result_data.path || [];
-        currentLinkContext = item.result_data.link_context || null;
-        showResultCard(item.result_data, visitedPagesList, (cache) => {
-            item.path_screenshots = { ...cache };
-            saveHistoryToStorage();
-        });
-        if (resultCard) resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
-
-        if (typeof d3 !== "undefined") {
-            const sInfo = item.start_info || { title: currentFoundPath[0] || item.start };
-            const tInfo = item.target_info || { title: currentFoundPath[currentFoundPath.length - 1] || item.target };
-            const vInfo = item.via_info || (item.via ? { title: item.via } : null);
-            resetForceGraph(sInfo, tInfo, vInfo, true);
-            (visitedPagesList || []).forEach(p => recordPageInGraph(p, p.direction, true));
-            highlightFinalPathInGraph(currentFoundPath, true);
+            if (lastPage.screenshot) {
+                liveScreenshotImg.src = lastPage.screenshot;
+                liveScreenshotImg.classList.remove("d-none");
+                noScreenshotPlaceholder.classList.add("d-none");
+                liveScreenshotImg.onclick = () => openScreenshotModal(lastPage.title, lastPage.screenshot);
+            } else {
+                liveScreenshotImg.classList.add("d-none");
+                noScreenshotPlaceholder.classList.remove("d-none");
+            }
+            renderLiveTrail(lastPage.path_so_far);
+        } else {
+            intermediateSection.classList.add("d-none");
+            liveInspectorCard.classList.add("d-none");
         }
 
-        if (!item.result_data.assessments && currentFoundPath.length > 0) {
-            fetchAssessmentsForPath(currentFoundPath, appSettings.lang || "en").then(ass => {
-                if (ass && Object.keys(ass).length > 0) {
-                    item.result_data.assessments = ass;
-                    saveHistoryToStorage();
-                    showResultCard(item.result_data, visitedPagesList);
-                }
-            });
-        }
-    } else {
-        if (resultCard) resultCard.classList.add("d-none");
-        if (pathCarouselCard) pathCarouselCard.classList.add("d-none");
-        if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
-        if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
-        if (contextCard) contextCard.classList.add("d-none");
-        if (graphCard) graphCard.classList.add("d-none");
-        if (graphSimulation) graphSimulation.stop();
-        showAlert(item.message || (item.status === "cancelled" ? "Search stopped by user." : item.status === "not_found" ? "Reached maximum search limit without finding target link." : "An error occurred during crawling."));
-        if (alertCard) alertCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
+        // Restore result card or alert card
+        if (item.status === "found" && item.result_data) {
+            alertCard.classList.add("d-none");
+            pathScreenshotCache = { ...(item.path_screenshots || {}) };
+            currentFoundPath = item.result_data.path || [];
+            currentLinkContext = item.result_data.link_context || null;
+            showResultCard(item.result_data);
+            resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
-    try {
-        if (historyOffcanvasEl && typeof bootstrap !== "undefined") {
+            if (typeof d3 !== "undefined") {
+                const sInfo = item.start_info || { title: currentFoundPath[0] || item.start };
+                const tInfo = item.target_info || { title: currentFoundPath[currentFoundPath.length - 1] || item.target };
+                const vInfo = item.via_info || (item.via ? { title: item.via } : null);
+                resetForceGraph(sInfo, tInfo, vInfo, true);
+                (visitedPagesList || []).forEach(p => recordPageInGraph(p, p.direction, true));
+                highlightFinalPathInGraph(currentFoundPath, true);
+            }
+
+            if (!item.result_data.assessments && currentFoundPath.length > 0) {
+                fetchAssessmentsForPath(currentFoundPath).then(ass => {
+                    if (ass && Object.keys(ass).length > 0) {
+                        item.result_data.assessments = ass;
+                        saveHistoryToStorage();
+                        showResultCard(item.result_data);
+                    }
+                });
+            }
+        } else {
+            resultCard.classList.add("d-none");
+            { const pc = document.getElementById("pathCarouselCard"); if (pc) pc.classList.add("d-none"); }
+            if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
+            if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
+            contextCard.classList.add("d-none");
+            if (graphCard) graphCard.classList.add("d-none");
+            if (graphSimulation) graphSimulation.stop();
+            showAlert(item.message || (item.status === "cancelled" ? "Search stopped by user." : item.status === "not_found" ? "Reached maximum search limit without finding target link." : "An error occurred during crawling."));
+            alertCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
+        // Close the offcanvas
+        try {
             const offcanvasInstance = bootstrap.Offcanvas.getInstance(historyOffcanvasEl);
-            if (offcanvasInstance) offcanvasInstance.hide();
+            if (offcanvasInstance) {
+                offcanvasInstance.hide();
+            }
+        } catch (e) {
+            console.error("Offcanvas hide error:", e);
         }
-    } catch (e) {
-        console.error("Offcanvas hide error:", e);
     }
-}
 
-// Initialization on DOMContentLoaded
-document.addEventListener("DOMContentLoaded", () => {
-    initTheme();
-    setupThemeToggle(() => {
-        renderPageStatsChart();
-    });
+    if (clearHistoryBtn) {
+        clearHistoryBtn.addEventListener("click", () => {
+            if (confirm("Clear all recent search history?")) {
+                searchHistory = [];
+                activeHistoryId = null;
+                localStorage.removeItem(STORAGE_KEY_HISTORY);
+                historyDbSet([]);
+                renderHistoryList();
+            }
+        });
+    }
 
-    setupSettingsEvents({
-        onLanguageChange: () => {
-            loadPresets();
-        },
-        onSettingsSave: () => {
-            loadPresets();
+    loadSearchHistory();
+
+    // --- Theme Handling ---
+    function initTheme() {
+        const savedTheme = localStorage.getItem("wikihop-theme") || "dark";
+        document.documentElement.setAttribute("data-bs-theme", savedTheme);
+        updateThemeIcon(savedTheme);
+    }
+
+    function updateThemeIcon(theme) {
+        if (theme === "dark") {
+            themeIcon.className = "bi bi-sun-fill";
+        } else {
+            themeIcon.className = "bi bi-moon-fill";
+        }
+    }
+
+    themeToggleBtn.addEventListener("click", () => {
+        const currentTheme = document.documentElement.getAttribute("data-bs-theme");
+        const nextTheme = currentTheme === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-bs-theme", nextTheme);
+        localStorage.setItem("wikihop-theme", nextTheme);
+        updateThemeIcon(nextTheme);
+        if (pageStatsChartInstance) {
+            renderPageStatsChart();
         }
     });
 
-    loadSearchHistory(restoreHistoricalSearch);
-    setupHistoryControls(restoreHistoricalSearch);
-    initStatsModule(getRuntimeState);
-    initPathCarouselControls();
-    initHopChainObserver();
-    setupAudioControls();
+    initTheme();
 
-    const startInput = document.getElementById("startInput");
-    const targetInput = document.getElementById("targetInput");
-    const viaInput = document.getElementById("viaInput");
-    const startSuggestions = document.getElementById("startSuggestions");
-    const targetSuggestions = document.getElementById("targetSuggestions");
-    const viaSuggestions = document.getElementById("viaSuggestions");
-    const searchForm = document.getElementById("searchForm");
-    const stopBtn = document.getElementById("stopBtn");
+    // --- Swap Button ---
+    swapBtn.addEventListener("click", () => {
+        const temp = startInput.value;
+        startInput.value = targetInput.value;
+        targetInput.value = temp;
+    });
+
+    // --- Clear Buttons ---
+    document.querySelectorAll(".clear-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("data-target");
+            const input = document.getElementById(targetId);
+            if (input) {
+                input.value = "";
+                input.focus();
+            }
+        });
+    });
+
+    // --- Autocomplete Setup ---
+    function setupAutocomplete(inputEl, dropdownEl) {
+        let debounceTimer = null;
+        let controller = null;
+        let requestSeq = 0;
+
+        async function fetchSuggestions() {
+            clearTimeout(debounceTimer);
+            const val = inputEl.value.trim();
+            if (controller) controller.abort();
+            const seq = ++requestSeq;
+            if (val.length < 2) {
+                dropdownEl.classList.add("d-none");
+                dropdownEl.innerHTML = "";
+                return;
+            }
+            controller = new AbortController();
+            try {
+                const langCode = appSettings.lang || "en";
+                const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}&lang=${encodeURIComponent(langCode)}`, { signal: controller.signal });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                // Drop stale responses (user typed more, or input changed)
+                if (seq !== requestSeq || inputEl.value.trim() !== val) return;
+                renderSuggestions(data.results || [], inputEl, dropdownEl);
+            } catch (e) {
+                if (e.name !== "AbortError") console.error("Autocomplete fetch error:", e);
+            }
+        }
+
+        inputEl.addEventListener("input", (e) => {
+            clearTimeout(debounceTimer);
+            // Programmatic input events (random/preset) shouldn't pop the dropdown
+            if (e && e.isTrusted === false) {
+                requestSeq++;
+                if (controller) controller.abort();
+                dropdownEl.classList.add("d-none");
+                return;
+            }
+            debounceTimer = setTimeout(fetchSuggestions, 200);
+        });
+
+        // Reopen suggestions when refocusing a field that has results
+        inputEl.addEventListener("focus", () => {
+            if (dropdownEl.children.length) dropdownEl.classList.remove("d-none");
+        });
+
+        document.addEventListener("click", (e) => {
+            if (!inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
+                dropdownEl.classList.add("d-none");
+            }
+        });
+    }
+
+    function renderSuggestions(results, inputEl, dropdownEl) {
+        if (!results.length) {
+            dropdownEl.classList.add("d-none");
+            dropdownEl.innerHTML = "";
+            return;
+        }
+
+        dropdownEl.innerHTML = "";
+        results.forEach((item) => {
+            const a = document.createElement("a");
+            a.className = "list-group-item list-group-item-action d-flex flex-column py-2";
+            a.href = "#";
+            a.innerHTML = `
+                <div class="fw-semibold text-body-emphasis">${escapeHtml(item.title)}</div>
+                ${item.description ? `<small class="text-secondary text-truncate">${escapeHtml(item.description)}</small>` : ""}
+            `;
+            a.addEventListener("click", (e) => {
+                e.preventDefault();
+                inputEl.value = item.title;
+                dropdownEl.classList.add("d-none");
+            });
+            dropdownEl.appendChild(a);
+        });
+        dropdownEl.classList.remove("d-none");
+    }
 
     setupAutocomplete(startInput, startSuggestions);
     setupAutocomplete(targetInput, targetSuggestions);
     if (viaInput && viaSuggestions) setupAutocomplete(viaInput, viaSuggestions);
 
-    setupFormButtons();
+    // --- Load Presets ---
+    async function loadPresets() {
+        try {
+            const langCode = appSettings.lang || "en";
+            const res = await fetch(`/api/presets?lang=${encodeURIComponent(langCode)}`);
+            const data = await res.json();
+            presetsContainer.innerHTML = "";
+            const presets = data.presets || [];
+            presets.forEach((p) => {
+                const chip = document.createElement("span");
+                chip.className = "preset-chip text-body-secondary";
+                chip.innerHTML = `${escapeHtml(p.start)} &rarr; ${escapeHtml(p.target)}`;
+                chip.title = `${p.category}: ${p.description}`;
+                chip.addEventListener("click", () => {
+                    startInput.value = p.start;
+                    if (viaInput) viaInput.value = "";
+                    targetInput.value = p.target;
+                });
+                presetsContainer.appendChild(chip);
+            });
+
+            // Update default input values if currently using default pair
+            if (presets.length > 0) {
+                const currentStart = startInput.value.trim();
+                const currentTarget = targetInput.value.trim();
+                if (!currentStart || currentStart === "London" || currentStart === "Berlin" || currentStart === "Paris" || currentStart === "Madrid" || currentStart === "Roma" || currentStart === "東京" || currentStart === "Москва") {
+                    startInput.value = presets[0].start;
+                    startInput.placeholder = `e.g. ${presets[0].start}`;
+                }
+                if (!currentTarget || currentTarget === "New York City" || currentTarget === "Wien" || currentTarget === "Montréal" || currentTarget === "Buenos Aires" || currentTarget === "Parigi" || currentTarget === "京都" || currentTarget === "Санкт-Петербург") {
+                    targetInput.value = presets[0].target;
+                    targetInput.placeholder = `e.g. ${presets[0].target}`;
+                }
+            }
+        } catch (e) {
+            console.error("Error loading presets:", e);
+        }
+    }
     loadPresets();
-    setupRandomButton();
-    setupVisitedFilter();
-    setupCopyButtons(() => currentFoundPath, () => currentLinkContext);
-    setupShutdown(() => {
-        if (socket) {
-            socket.onclose = null;
-            socket.close();
+
+    // --- Random Button (English Wikipedia Special:Random) ---
+    if (randomBtn) {
+        randomBtn.addEventListener("click", async () => {
+            const randLang = (appSettings.lang || "en").toLowerCase();
+
+            const origHtml = randomBtn.innerHTML;
+            randomBtn.disabled = true;
+            randomBtn.classList.add("disabled", "opacity-75");
+            randomBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Randomizing...`;
+
+            // Hide autocomplete suggestions if open
+            if (startSuggestions) startSuggestions.classList.add("d-none");
+            if (targetSuggestions) targetSuggestions.classList.add("d-none");
+            if (viaInput) viaInput.value = "";
+
+            try {
+                const res = await fetch(`/api/random?lang=${encodeURIComponent(randLang)}`);
+                if (!res.ok) {
+                    throw new Error(`Server returned status ${res.status}`);
+                }
+                const data = await res.json();
+                if (data.start && data.target) {
+                    startInput.value = data.start;
+                    targetInput.value = data.target;
+
+                    // Trigger input events so any UI listeners or clear buttons update
+                    startInput.dispatchEvent(new Event("input", { bubbles: true }));
+                    targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+                } else {
+                    throw new Error(data.error || "Invalid response format");
+                }
+            } catch (err) {
+                console.error("Error fetching random articles:", err);
+                showAlert(`Failed to select random articles from ${randLang}.wikipedia.org. Please try again.`);
+            } finally {
+                const isRunning = startBtn && startBtn.classList.contains("d-none");
+                randomBtn.innerHTML = origHtml;
+                if (!isRunning) {
+                    randomBtn.disabled = false;
+                    randomBtn.classList.remove("disabled", "opacity-75", "opacity-50");
+                } else {
+                    randomBtn.disabled = true;
+                    randomBtn.classList.add("disabled", "opacity-50");
+                    randomBtn.classList.remove("opacity-75");
+                }
+            }
+        });
+    }
+
+    // --- Filter Visited Pages ---
+    filterInput.addEventListener("input", () => {
+        const query = filterInput.value.toLowerCase();
+        const rows = visitedTableBody.querySelectorAll("tr");
+        rows.forEach((row) => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(query) ? "" : "none";
+        });
+    });
+
+    // --- Copy Path Button ---
+    copyPathBtn.addEventListener("click", () => {
+        if (!currentFoundPath.length) return;
+        const text = currentFoundPath.join(" ➔ ") + ` (${currentFoundPath.length - 1} hops)`;
+        navigator.clipboard.writeText(text).then(() => {
+            const orig = copyPathBtn.innerHTML;
+            copyPathBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Copied!`;
+            setTimeout(() => (copyPathBtn.innerHTML = orig), 2000);
+        });
+    });
+
+    // --- Copy Context Button ---
+    copyContextBtn.addEventListener("click", () => {
+        if (!currentLinkContext) return;
+        const ctx = currentLinkContext;
+        const sourceTitle = ctx.source_title || (ctx.source_slug ? ctx.source_slug.replace(/_/g, " ") : "Source Article");
+        const textToCopy = `Source Article: ${sourceTitle} (${ctx.source_url})\nTarget Link: ${ctx.target_title}\n\n"... ${ctx.words_before} [${ctx.anchor_text}] ${ctx.words_after} ..."`;
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            const orig = copyContextBtn.innerHTML;
+            copyContextBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Copied!`;
+            setTimeout(() => (copyContextBtn.innerHTML = orig), 2000);
+        });
+    });
+
+    // --- Shutdown Server Handler ---
+    const shutdownModalEl = document.getElementById("shutdownModal");
+    const confirmShutdownBtn = document.getElementById("confirmShutdownBtn");
+    const shutdownOverlay = document.getElementById("shutdownOverlay");
+
+    if (confirmShutdownBtn) {
+        confirmShutdownBtn.addEventListener("click", async () => {
+            confirmShutdownBtn.disabled = true;
+            confirmShutdownBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Shutting down...`;
+
+            try {
+                const modalInstance = bootstrap.Modal.getInstance(shutdownModalEl);
+                if (modalInstance) modalInstance.hide();
+
+                if (socket) {
+                    socket.onclose = null;
+                    socket.close();
+                }
+
+                await fetch("/api/shutdown", { method: "POST" });
+            } catch (e) {
+                console.log("Shutdown request sent:", e);
+            }
+
+            setTimeout(() => {
+                if (shutdownOverlay) {
+                    shutdownOverlay.classList.remove("d-none");
+                }
+            }, 300);
+        });
+    }
+
+    // --- WebSocket Connection ---
+    function connectWebSocket() {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws/search`;
+
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+            console.log("WebSocket connected to WikiHop server.");
+        };
+
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                handleServerMessage(data);
+            } catch (err) {
+                console.error("Failed to parse WebSocket message:", err);
+            }
+        };
+
+        socket.onclose = () => {
+            console.log("WebSocket closed. Attempting reconnect in 2s...");
+            setTimeout(connectWebSocket, 2000);
+        };
+
+        socket.onerror = (err) => {
+            console.error("WebSocket error:", err);
+        };
+    }
+    connectWebSocket();
+
+    // --- Form Submit: Start Crawl ---
+    searchForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const start = startInput.value.trim();
+        const target = targetInput.value.trim();
+        const via = viaInput ? viaInput.value.trim() : "";
+
+        if (!start || !target) return;
+
+        currentCrawlParams = {
+            start: start,
+            via: via,
+            target: target,
+            lang: appSettings.lang || "en",
+            algorithm: appSettings.algorithm,
+            maxPages: appSettings.maxPages,
+            maxDepth: appSettings.maxDepth,
+            contextWords: appSettings.contextWords,
+        };
+
+        resetUI();
+
+        const payload = {
+            action: "start",
+            start: start,
+            via: via,
+            target: target,
+            lang: appSettings.lang || "en",
+            algorithm: appSettings.algorithm,
+            max_pages: appSettings.maxPages,
+            max_depth: appSettings.maxDepth,
+            capture_screenshots: appSettings.captureScreenshots,
+            headless: appSettings.headless,
+            adaptive_balancing: appSettings.adaptiveBalancing,
+            context_words: appSettings.contextWords,
+        };
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(payload));
+        } else {
+            alert("WebSocket is not connected. Please refresh the page.");
         }
     });
 
-    connectWebSocket();
+    // --- Stop Button ---
+    stopBtn.addEventListener("click", () => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ action: "stop" }));
+        }
+        setRunningState(false);
+    });
 
-    if (searchForm) {
-        searchForm.addEventListener("submit", (e) => {
-            e.preventDefault();
+    // --- Handle Incoming Server Messages ---
+    function handleServerMessage(data) {
+        const eventType = data.event;
 
-            const start = startInput ? startInput.value.trim() : "";
-            const target = targetInput ? targetInput.value.trim() : "";
-            const via = viaInput ? viaInput.value.trim() : "";
-
-            if (!start || !target) return;
-
-            currentCrawlParams = {
-                start: start,
-                via: via,
-                target: target,
-                lang: appSettings.lang || "en",
-                algorithm: appSettings.algorithm,
-                maxPages: appSettings.maxPages,
-                maxDepth: appSettings.maxDepth,
-                contextWords: appSettings.contextWords,
-            };
-
-            resetUI();
-
-            const payload = {
-                action: "start",
-                start: start,
-                via: via,
-                target: target,
-                lang: appSettings.lang || "en",
-                algorithm: appSettings.algorithm,
-                max_pages: appSettings.maxPages,
-                max_depth: appSettings.maxDepth,
-                capture_screenshots: appSettings.captureScreenshots,
-                headless: appSettings.headless,
-                adaptive_balancing: appSettings.adaptiveBalancing,
-                context_words: appSettings.contextWords,
-            };
-
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify(payload));
+        if (eventType === "started") {
+            setRunningState(true);
+            startTimer();
+            const maxPages = data.max_pages || appSettings.maxPages;
+            kpiPagesSub.textContent = "0 forward \u2022 0 backward";
+            const backlinksCount = data.target_backlinks_count || 0;
+            if (data.is_niche) {
+                const bridgeCount = data.category_bridges_count || 0;
+                kpiStatusBadge.textContent = `Niche Target: Seeded ${bridgeCount} Category Bridges (${backlinksCount} direct)`;
             } else {
-                alert("WebSocket is not connected. Please refresh the page.");
+                kpiStatusBadge.textContent = backlinksCount > 0 ? `Mapped ${backlinksCount.toLocaleString()} target backlinks` : "Playwright navigating...";
+            }
+            statsSection.classList.remove("d-none");
+            liveInspectorCard.classList.remove("d-none");
+            intermediateSection.classList.remove("d-none");
+
+            if (liveDirectionBadge) {
+                liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+                liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+            }
+
+            resetForceGraph(data.start, data.target, data.via || (currentCrawlParams ? currentCrawlParams.via : null));
+
+        } else if (eventType === "visiting") {
+            const page = data.page;
+            const totalVisited = data.total_visited;
+
+            visitedPagesList.push(page);
+            totalLinksAccumulated += page.links_count || 0;
+
+            const maxPages = appSettings.maxPages;
+            const pct = Math.min(Math.round((totalVisited / maxPages) * 100), 98);
+            progressBar.style.width = `${pct}%`;
+
+            kpiPagesVisited.textContent = totalVisited;
+            const fCount = data.forward_visited_count !== undefined ? data.forward_visited_count : (page.direction === "forward" ? 1 : 0);
+            const bCount = data.backward_visited_count !== undefined ? data.backward_visited_count : (page.direction === "backward" ? 1 : 0);
+            kpiPagesSub.textContent = `${fCount} forward \u2022 ${bCount} backward`;
+            kpiCurrentDepth.textContent = page.depth;
+            kpiDepthSub.textContent = `Hop level ${page.depth}`;
+            kpiLinksCount.textContent = totalLinksAccumulated.toLocaleString();
+            const linkKind = (page.links_type === 'incoming_backlinks' || page.direction === 'backward') ? 'backlinks' : 'outgoing';
+            kpiLinksSub.textContent = `+${page.links_count} ${linkKind} on this step`;
+
+            if (liveDirectionBadge) {
+                if (page.direction === "backward") {
+                    liveDirectionBadge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-left-circle me-1"></i> Backward from Target`;
+                } else {
+                    liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+                    liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+                }
+            }
+
+            liveHopBadge.textContent = `Hop ${page.depth}`;
+            livePageTitle.textContent = page.title;
+            livePageLink.href = page.url;
+            livePageSnippet.innerHTML = formatTextWithMath(page.snippet || "Playwright loaded page and analyzed internal links.");
+            renderMathInContainer(livePageSnippet);
+
+            if (page.screenshot) {
+                liveScreenshotImg.src = page.screenshot;
+                liveScreenshotImg.classList.remove("d-none");
+                noScreenshotPlaceholder.classList.add("d-none");
+                liveScreenshotImg.onclick = () => openScreenshotModal(page.title, page.screenshot);
+            } else {
+                liveScreenshotImg.classList.add("d-none");
+                noScreenshotPlaceholder.classList.remove("d-none");
+            }
+
+            renderLiveTrail(page.path_so_far);
+            appendVisitedTableRow(page);
+            intermediateCountBadge.textContent = visitedPagesList.length;
+
+            recordPageInGraph(page, page.direction);
+
+        } else if (eventType === "found") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.style.width = "100%";
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-success");
+            kpiStatusBadge.textContent = "Path Found!";
+
+            if (data.forward_visited_count !== undefined && data.backward_visited_count !== undefined) {
+                kpiPagesSub.textContent = `${data.forward_visited_count} forward \u2022 ${data.backward_visited_count} backward`;
+            }
+
+            currentFoundPath = data.path;
+            currentLinkContext = data.link_context;
+            pathScreenshotCache = {};
+            showResultCard(data);
+            highlightFinalPathInGraph(data.path);
+            saveCurrentSearchToHistory("found", data);
+            currentStatsScope = "path";
+            if (scopePathOnly) scopePathOnly.checked = true;
+            fetchAndRenderPageStats();
+
+        } else if (eventType === "bridge_seeding") {
+            const count = data.new_bridges_count || 0;
+            const total = data.total_bridges_count || count;
+            kpiStatusBadge.textContent = `⚡ Seeded ${count} category bridges (30+ pages explored)`;
+            kpiStatusBadge.className = "badge bg-info text-dark rounded-pill px-3 py-1.5 shadow-sm";
+            console.log(`[WikiHop] Mid-crawl category bridge seeding: ${count} bridges added (total: ${total}).`);
+            playGraphPop("bridge");
+
+        } else if (eventType === "not_found") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-warning");
+            kpiStatusBadge.textContent = "Limit reached";
+            showAlert(data.message || "Reached maximum search limit without finding target link.");
+            saveCurrentSearchToHistory("not_found", data);
+            if (visitedPagesList.length > 0) {
+                currentStatsScope = "all";
+                if (scopeAllVisited) scopeAllVisited.checked = true;
+                fetchAndRenderPageStats();
+            }
+
+        } else if (eventType === "cancelled") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-secondary");
+            kpiStatusBadge.textContent = "Crawl stopped";
+            showAlert(data.message || "Search stopped by user.");
+            saveCurrentSearchToHistory("cancelled", data);
+            if (visitedPagesList.length > 0) {
+                currentStatsScope = "all";
+                if (scopeAllVisited) scopeAllVisited.checked = true;
+                fetchAndRenderPageStats();
+            }
+
+        } else if (eventType === "error") {
+            stopTimer();
+            setRunningState(false);
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-danger");
+            kpiStatusBadge.textContent = "Error";
+            showAlert(data.message || "An error occurred during crawling.");
+            saveCurrentSearchToHistory("error", data);
+        }
+    }
+
+
+    // --- Article Quality Assessment & WikiProject Utilities ---
+    function getAssessmentData(title, assessments) {
+        if (!assessments || !title) return null;
+        return assessments[title] ||
+               assessments[title.replace(/ /g, "_")] ||
+               assessments[title.toLowerCase()] ||
+               assessments[title.toLowerCase().replace(/ /g, "_")] ||
+               null;
+    }
+
+    function renderAssessmentBadgeHtml(assessment) {
+        if (!assessment || !assessment.class || assessment.class === "Unassessed") {
+            return `
+                <span class="badge rounded-pill assessment-badge badge-unassessed" title="Assessment: Unassessed or pending evaluation">
+                    <i class="bi bi-question-circle-fill me-1"></i>Unassessed
+                </span>
+            `;
+        }
+        const badgeClass = assessment.badge_class || "badge-unassessed";
+        const icon = assessment.icon || "bi-patch-check-fill";
+        const cls = assessment.class || "Unassessed";
+        const fullName = assessment.class_name || `${cls} Class`;
+        return `
+            <span class="badge rounded-pill assessment-badge ${badgeClass}" title="Quality Assessment: ${escapeHtml(fullName)}">
+                <i class="bi ${icon} me-1"></i>${escapeHtml(cls)}
+            </span>
+        `;
+    }
+
+    function renderWikiProjectHtml(assessment) {
+        if (!assessment || !assessment.has_wikiproject || !assessment.primary_project) {
+            return "";
+        }
+        const primary = assessment.primary_project;
+        const impText = primary.importance ? ` (${escapeHtml(primary.importance)} Importance)` : "";
+        const allProjects = assessment.all_projects || [];
+        const extraCount = allProjects.length - 1;
+
+        let moreBadgeHtml = "";
+        if (extraCount > 0) {
+            const remainingProjects = allProjects.slice(1).join(", ");
+            moreBadgeHtml = `
+                <span class="badge wikiproject-more-badge" title="Additional WikiProjects: ${escapeHtml(remainingProjects)}">
+                    +${extraCount} more
+                </span>
+            `;
+        }
+
+        return `
+            <div class="d-flex flex-wrap align-items-center gap-1 mt-1 w-100">
+                <span class="badge wikiproject-pill text-truncate" title="WikiProject ${escapeHtml(primary.name)}${impText}">
+                    <i class="bi bi-diagram-2-fill me-1"></i>WikiProject ${escapeHtml(primary.name)}
+                </span>
+                ${moreBadgeHtml}
+            </div>
+        `;
+    }
+
+    async function fetchAssessmentsForPath(titles) {
+        if (!titles || !titles.length) return null;
+        try {
+            const langCode = appSettings.lang || "en";
+            const res = await fetch(`/api/article-assessments?titles=${encodeURIComponent(titles.join(","))}&lang=${encodeURIComponent(langCode)}`);
+            if (res.ok) {
+                return await res.json();
+            }
+        } catch (e) {
+            console.warn("Failed to fetch assessments:", e);
+        }
+        return null;
+    }
+
+    // --- Show Result Card & Context ---
+    function showResultCard(data) {
+        resultCard.classList.remove("d-none");
+        resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+        const hops = data.hops;
+        resultHopBadge.textContent = `${hops} Hop${hops === 1 ? "" : "s"} Required`;
+        resultHopBadge.className = `badge ${hops <= 2 ? "bg-success" : "bg-primary"} fs-6 px-3 py-1 rounded-pill`;
+
+        if (resultMeetingBadge) {
+            const hasMeetingBridge = (data.intermediate_steps || []).some(s => s.badge && (s.badge.includes("Meeting") || s.badge.includes("Bridge")));
+            if (hasMeetingBridge || (data.found_on_page && data.found_on_page !== data.path[data.path.length - 1] && data.found_on_page !== data.path[0])) {
+                resultMeetingBadge.classList.remove("d-none");
+                resultMeetingBadge.innerHTML = `<i class="bi bi-intersect me-1"></i> Frontiers Met at "${escapeHtml(data.found_on_page || 'Intersection')}"`;
+            } else {
+                resultMeetingBadge.classList.add("d-none");
+            }
+        }
+
+        const startTitle = data.path[0];
+        const targetTitle = data.path[data.path.length - 1];
+        resultTitle.innerHTML = `${escapeHtml(startTitle)} &rarr; ${escapeHtml(targetTitle)}`;
+
+        resultSummaryText.innerHTML = `
+            <strong>Target reached!</strong> Playwright inspected <strong>${data.total_visited}</strong> intermediate pages 
+            (${data.forward_visited_count || 0} forward + ${data.backward_visited_count || 0} backward)
+            and connected <strong>${escapeHtml(startTitle)}</strong> to <strong>${escapeHtml(targetTitle)}</strong> in exactly <strong>${hops}</strong> link hop${hops === 1 ? "" : "s"}.
+        `;
+
+        // Render Visual Hop Chain
+        hopChainWrapper.innerHTML = "";
+        if (hopChainContainer) {
+            hopChainContainer.classList.remove("in-view");
+        }
+        const langCode = appSettings.lang || "en";
+        data.path.forEach((title, index) => {
+            const isStart = index === 0;
+            const isTarget = index === data.path.length - 1;
+            const url = data.urls ? data.urls[index] : `https://${langCode}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+
+            const node = document.createElement("div");
+            node.className = `hop-node ${isStart ? "start-node" : isTarget ? "target-node" : "intermediate-node"}`;
+            node.style.setProperty("--node-idx", index);
+            
+            let icon = isStart ? '<i class="bi bi-geo-alt-fill"></i>' : isTarget ? '<i class="bi bi-flag-fill"></i>' : '<i class="bi bi-link-45deg"></i>';
+            const isVia = !isStart && !isTarget && data.via_index === index;
+            let label = isStart ? "Start" : isTarget ? `Target (${index} hops)` : isVia ? `Via · Hop ${index}` : `Hop ${index}`;
+            if (isVia) node.classList.add("border", "border-warning");
+
+            node.innerHTML = `
+                ${icon}
+                <div class="d-flex flex-column text-start">
+                    <span style="font-size: 0.72rem; text-transform: uppercase; opacity: 0.85;">${label}</span>
+                    <a href="${url}" target="_blank" class="text-reset text-decoration-none fw-bold">${escapeHtml(title)}</a>
+                </div>
+            `;
+            hopChainWrapper.appendChild(node);
+
+            if (index < data.path.length - 1) {
+                const arrow = document.createElement("div");
+                arrow.className = "hop-arrow";
+                arrow.style.setProperty("--arrow-idx", index);
+                arrow.innerHTML = `<i class="bi bi-chevron-right"></i>`;
+                hopChainWrapper.appendChild(arrow);
+            }
+        });
+
+        triggerHopChainAnimation();
+
+        // Render Intermediate Links Used & Algorithmic Rationale
+        renderIntermediateSteps(data.intermediate_steps, data.assessments);
+
+        renderPathCarousel(data.path, data.via_index);
+
+        // Render Context Section (150 words before and after)
+        const ctx = data.link_context;
+        if (ctx && (ctx.words_before || ctx.words_after || ctx.anchor_text)) {
+            contextCard.classList.remove("d-none");
+            contextBadgeWords.textContent = `${ctx.requested_words || 150} words before & after`;
+            contextSourceTitle.textContent = ctx.source_title || (ctx.source_slug ? ctx.source_slug.replace(/_/g, " ") : "Source Article");
+            contextTargetTitle.textContent = ctx.target_title;
+            contextSourceLink.href = ctx.source_url;
+            
+            contextBefore.innerHTML = ctx.words_before ? `... ${formatTextWithMath(ctx.words_before)}` : "(Start of page section)";
+            contextAnchor.innerHTML = formatTextWithMath(ctx.anchor_text || ctx.target_title);
+            contextAfter.innerHTML = ctx.words_after ? `${formatTextWithMath(ctx.words_after)} ...` : "(End of page section)";
+            renderMathInContainer(contextCard);
+            
+            wordsBeforeCount.textContent = ctx.before_count || 0;
+            wordsAfterCount.textContent = ctx.after_count || 0;
+        } else {
+            contextCard.classList.add("d-none");
+        }
+    }
+
+    // --- Hop Chain Scroll Animation ---
+    function triggerHopChainAnimation() {
+        if (!hopChainContainer) return;
+        hopChainContainer.classList.remove("in-view");
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!hopChainContainer) return;
+                const rect = hopChainContainer.getBoundingClientRect();
+                const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+                if (inViewport) {
+                    hopChainContainer.classList.add("in-view");
+                }
+            });
+        });
+    }
+
+    if (hopChainContainer && window.IntersectionObserver) {
+        const hopChainObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    hopChainContainer.classList.add("in-view");
+                }
+            });
+        }, {
+            threshold: 0.15,
+            rootMargin: "0px 0px -30px 0px"
+        });
+        hopChainObserver.observe(hopChainContainer);
+    }
+
+    // --- Interactive Force-Directed Graph Visualizer (D3.js) ---
+    let graphData = { nodes: [], links: [] };
+    let graphNodesMap = new Map(); // id -> node
+    let graphLinksSet = new Set(); // source|target -> link
+    let graphSimulation = null;
+    let graphSvg = null;
+    let graphZoom = null;
+    let graphContainerGroup = null;
+    let graphFinalPathSet = new Set();
+    let graphStartId = null;
+    let graphTargetId = null;
+    let graphViaId = null;
+    let graphPathEmergenceTimers = [];
+    let graphSnippetCache = new Map(); // id -> snippet
+    let currentTooltipNodeId = null;
+
+    function clearGraphPathTimers() {
+        if (graphPathEmergenceTimers && graphPathEmergenceTimers.length) {
+            graphPathEmergenceTimers.forEach(t => clearTimeout(t));
+            graphPathEmergenceTimers = [];
+        }
+    }
+
+    // --- Graph Audio Synthesizer (Pop Sound Effects for Graph Actions) ---
+    const STORAGE_KEY_GRAPH_SOUND = "wikihop-graph-sound";
+    let isGraphSoundEnabled = true;
+    try {
+        const storedSoundPref = localStorage.getItem(STORAGE_KEY_GRAPH_SOUND);
+        if (storedSoundPref !== null) {
+            isGraphSoundEnabled = storedSoundPref === "true";
+        }
+    } catch (_) {}
+
+    let graphAudioCtx = null;
+    let lastGraphPopTime = 0;
+
+    function getGraphAudioContext() {
+        if (!graphAudioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+                graphAudioCtx = new AudioContextClass();
+            }
+        }
+        if (graphAudioCtx && graphAudioCtx.state === "suspended") {
+            graphAudioCtx.resume().catch(() => {});
+        }
+        return graphAudioCtx;
+    }
+
+    function unlockAudioOnInteraction() {
+        getGraphAudioContext();
+    }
+    document.addEventListener("pointerdown", unlockAudioOnInteraction, { passive: true });
+    document.addEventListener("keydown", unlockAudioOnInteraction, { passive: true });
+
+    function updateGraphSoundButtonUI() {
+        if (!graphSoundToggleBtn) return;
+        if (isGraphSoundEnabled) {
+            if (graphSoundIcon) graphSoundIcon.className = "bi bi-volume-up-fill";
+            graphSoundToggleBtn.classList.add("text-primary");
+            graphSoundToggleBtn.title = "Graph Pop Sounds Enabled (Click to Mute)";
+        } else {
+            if (graphSoundIcon) graphSoundIcon.className = "bi bi-volume-mute-fill";
+            graphSoundToggleBtn.classList.remove("text-primary");
+            graphSoundToggleBtn.title = "Graph Pop Sounds Muted (Click to Enable)";
+        }
+    }
+
+    function toggleGraphSound() {
+        isGraphSoundEnabled = !isGraphSoundEnabled;
+        try {
+            localStorage.setItem(STORAGE_KEY_GRAPH_SOUND, String(isGraphSoundEnabled));
+        } catch (_) {}
+        updateGraphSoundButtonUI();
+    }
+
+    /**
+     * Synthesizes and plays a clean, satisfying bubble/cork "pop" sound
+     * exclusively for autonomous graph actions (node spawns, additions, path emergence, bridges).
+     * @param {string} action - 'node' | 'spawn' | 'path-node' | 'bridge'
+     * @param {object} [options] - pitch, volume, index, total, direction
+     */
+    function playGraphPop(action = "node", options = {}) {
+        if (!isGraphSoundEnabled) return;
+        try {
+            const ctx = getGraphAudioContext();
+            if (!ctx) return;
+            if (ctx.state === "suspended") {
+                ctx.resume().catch(() => {});
+            }
+
+            const now = ctx.currentTime;
+            // Throttle rapid successive node additions to prevent audio clutter
+            if (action === "node" && (now - lastGraphPopTime < 0.035)) {
+                return;
+            }
+            lastGraphPopTime = now;
+
+            let startFreq = 800;
+            let endFreq = 160;
+            let duration = 0.055;
+            let volume = 0.22;
+
+            if (action === "spawn") {
+                // Initial anchor nodes spawn in the graph
+                startFreq = 840;
+                endFreq = 180;
+                duration = 0.06;
+                volume = 0.20;
+            } else if (action === "node") {
+                // Exploration node or link appearing on the graph
+                const rand = (Math.random() - 0.5) * 80;
+                const dirMultiplier = options.direction === "backward" ? 1.15 : 1.0;
+                startFreq = (780 + rand) * dirMultiplier;
+                endFreq = (160 + rand * 0.2) * dirMultiplier;
+                duration = 0.05;
+                volume = 0.18;
+            } else if (action === "path-node") {
+                // Winning path emerging node: ascending pitch progression per hop
+                const idx = options.index || 0;
+                const semitoneRatio = Math.pow(2, (idx % 12) / 12);
+                startFreq = 650 * semitoneRatio;
+                endFreq = 180 * Math.min(2.0, semitoneRatio);
+                duration = 0.07;
+                volume = 0.26;
+            } else if (action === "bridge") {
+                // Category bridge seeding in the graph
+                startFreq = 950;
+                endFreq = 220;
+                duration = 0.065;
+                volume = 0.22;
+            }
+
+            if (options.pitch) {
+                startFreq *= options.pitch;
+                endFreq *= options.pitch;
+            }
+            if (options.volume !== undefined) {
+                volume = options.volume;
+            }
+
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.type = "sine";
+
+            // Characteristic bubble/cork pop pitch sweep:
+            // Micro-attack rise (3ms) followed by fast exponential plunge
+            osc.frequency.setValueAtTime(startFreq * 0.75, now);
+            osc.frequency.linearRampToValueAtTime(startFreq, now + 0.003);
+            osc.frequency.exponentialRampToValueAtTime(Math.max(25, endFreq), now + duration);
+
+            // Fast attack and smooth exponential decay
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.linearRampToValueAtTime(volume, now + 0.002);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.start(now);
+            osc.stop(now + duration);
+        } catch (_) {
+            // Browser autoplay restrictions may block audio prior to user gesture
+        }
+    }
+
+    function initForceGraph() {
+        if (!forceGraphSvg || typeof d3 === "undefined") return;
+
+        d3.select(forceGraphSvg).selectAll("*").remove();
+
+        const svg = d3.select(forceGraphSvg);
+        graphSvg = svg;
+
+        // Define arrowhead markers
+        const defs = svg.append("defs");
+        defs.append("marker")
+            .attr("id", "arrow-forward")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 22)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-4L9,0L0,4")
+            .attr("fill", "rgba(59, 130, 246, 0.6)");
+
+        defs.append("marker")
+            .attr("id", "arrow-backward")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 22)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-4L9,0L0,4")
+            .attr("fill", "rgba(6, 182, 212, 0.6)");
+
+        defs.append("marker")
+            .attr("id", "arrow-via")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 24)
+            .attr("refY", 0)
+            .attr("markerWidth", 7)
+            .attr("markerHeight", 7)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-4L9,0L0,4")
+            .attr("fill", "rgba(168, 85, 247, 0.8)");
+
+        defs.append("marker")
+            .attr("id", "arrow-path")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 24)
+            .attr("refY", 0)
+            .attr("markerWidth", 8)
+            .attr("markerHeight", 8)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#eab308");
+
+        graphContainerGroup = svg.append("g").attr("class", "graph-zoom-layer");
+
+        graphContainerGroup.append("g").attr("class", "links-layer");
+        graphContainerGroup.append("g").attr("class", "nodes-layer");
+
+        graphZoom = d3.zoom()
+            .scaleExtent([0.15, 4])
+            .on("zoom", (event) => {
+                graphContainerGroup.attr("transform", event.transform);
+            });
+
+        svg.call(graphZoom);
+
+        if (graphZoomInBtn) {
+            graphZoomInBtn.onclick = () => {
+                if (graphSvg && graphZoom) svg.transition().duration(250).call(graphZoom.scaleBy, 1.3);
+            };
+        }
+        if (graphZoomOutBtn) {
+            graphZoomOutBtn.onclick = () => {
+                if (graphSvg && graphZoom) svg.transition().duration(250).call(graphZoom.scaleBy, 0.77);
+            };
+        }
+        if (graphResetBtn) {
+            graphResetBtn.onclick = () => {
+                resetGraphView();
+            };
+        }
+        if (graphSoundToggleBtn) {
+            graphSoundToggleBtn.onclick = () => {
+                toggleGraphSound();
+            };
+            updateGraphSoundButtonUI();
+        }
+    }
+
+    function resetGraphView() {
+        if (!graphSvg || !graphZoom) return;
+        const width = forceGraphSvg.clientWidth || 800;
+        const height = forceGraphSvg.clientHeight || 480;
+        graphSvg.transition().duration(400).call(
+            graphZoom.transform,
+            d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85)
+        );
+    }
+
+    function resetForceGraph(startInfo, targetInfo, viaInfo, silent = false) {
+        clearGraphPathTimers();
+        graphData = { nodes: [], links: [] };
+        graphNodesMap.clear();
+        graphLinksSet.clear();
+        graphFinalPathSet.clear();
+
+        if (graphEmptyState) graphEmptyState.classList.add("d-none");
+        if (graphPathLegend) graphPathLegend.classList.add("d-none");
+        if (graphCard) graphCard.classList.remove("d-none");
+
+        initForceGraph();
+
+        graphStartId = startInfo && startInfo.title ? startInfo.title : (typeof startInfo === "string" ? startInfo : "Start");
+        graphTargetId = targetInfo && targetInfo.title ? targetInfo.title : (typeof targetInfo === "string" ? targetInfo : "Target");
+        
+        let viaTitle = null;
+        if (viaInfo) {
+            viaTitle = typeof viaInfo === "string" ? viaInfo.trim() : (viaInfo.title || "");
+            viaTitle = viaTitle.trim() || null;
+        }
+        graphViaId = viaTitle;
+
+        if (graphViaLegend) {
+            if (graphViaId) {
+                graphViaLegend.classList.remove("d-none");
+            } else {
+                graphViaLegend.classList.add("d-none");
+            }
+        }
+
+        // Seed with Start and Target anchors
+        const startSnippet = (startInfo && (startInfo.extract || startInfo.description || startInfo.snippet)) || "";
+        const targetSnippet = (targetInfo && (targetInfo.extract || targetInfo.description || targetInfo.snippet)) || "";
+        const viaSnippet = (viaInfo && (viaInfo.extract || viaInfo.description || viaInfo.snippet)) || "";
+
+        if (startSnippet) graphSnippetCache.set(graphStartId, startSnippet);
+        if (targetSnippet) graphSnippetCache.set(graphTargetId, targetSnippet);
+        if (viaSnippet && graphViaId) graphSnippetCache.set(graphViaId, viaSnippet);
+
+        addGraphNode({
+            id: graphStartId,
+            title: graphStartId,
+            type: "start",
+            depth: 0,
+            x: -180,
+            y: 0,
+            fx: -180,
+            links_count: 0,
+            snippet: startSnippet,
+            url: (startInfo && startInfo.url) || `https://${appSettings.lang || "en"}.wikipedia.org/wiki/${encodeURIComponent(graphStartId.replace(/ /g, "_"))}`
+        });
+
+        addGraphNode({
+            id: graphTargetId,
+            title: graphTargetId,
+            type: "target",
+            depth: 0,
+            x: 180,
+            y: 0,
+            fx: 180,
+            links_count: 0,
+            snippet: targetSnippet,
+            url: (targetInfo && targetInfo.url) || `https://${appSettings.lang || "en"}.wikipedia.org/wiki/${encodeURIComponent(graphTargetId.replace(/ /g, "_"))}`
+        });
+
+        // If Via article specified, add it as a prominent milestone anchor
+        if (graphViaId && graphViaId !== graphStartId && graphViaId !== graphTargetId) {
+            addGraphNode({
+                id: graphViaId,
+                title: graphViaId,
+                type: "via",
+                depth: 1,
+                x: 0,
+                y: -60,
+                fx: 0,
+                links_count: 0,
+                snippet: viaSnippet,
+                url: (viaInfo && viaInfo.url) || `https://${appSettings.lang || "en"}.wikipedia.org/wiki/${encodeURIComponent(graphViaId.replace(/ /g, "_"))}`
+            });
+        }
+
+        startOrUpdateSimulation();
+        resetGraphView();
+
+        // Pop sound when graph spawns initial anchor nodes
+        if (!silent) {
+            playGraphPop("spawn", { pitch: 1.0 });
+            if (graphViaId && graphViaId !== graphStartId && graphViaId !== graphTargetId) {
+                setTimeout(() => playGraphPop("spawn", { pitch: 1.25 }), 120);
+            }
+        }
+    }
+
+    function addGraphNode(node) {
+        if (node.snippet) {
+            graphSnippetCache.set(node.id, node.snippet);
+        } else if (graphSnippetCache.has(node.id)) {
+            node.snippet = graphSnippetCache.get(node.id);
+        }
+
+        if (graphNodesMap.has(node.id)) {
+            // Update node attributes if needed
+            const existing = graphNodesMap.get(node.id);
+            if (node.type === "start" || node.type === "target" || node.type === "via") existing.type = node.type;
+            if (node.depth !== undefined && existing.depth === undefined) existing.depth = node.depth;
+            if (node.links_count !== undefined) existing.links_count = node.links_count;
+            if (node.snippet && !existing.snippet) existing.snippet = node.snippet;
+            if (node.url && !existing.url) existing.url = node.url;
+            return existing;
+        }
+        graphNodesMap.set(node.id, node);
+        graphData.nodes.push(node);
+        return node;
+    }
+
+    function addGraphLink(sourceId, targetId, direction, isFinalPath = false) {
+        if (!sourceId || !targetId || sourceId === targetId) return;
+        const key = `${sourceId}|${targetId}`;
+        if (graphLinksSet.has(key)) {
+            if (isFinalPath) {
+                const existing = graphData.links.find(l => 
+                    (l.source.id === sourceId || l.source === sourceId) &&
+                    (l.target.id === targetId || l.target === targetId)
+                );
+                if (existing) existing.isFinalPath = true;
+            }
+            return;
+        }
+        graphLinksSet.add(key);
+        graphData.links.push({
+            source: sourceId,
+            target: targetId,
+            direction: direction || "forward",
+            isFinalPath: isFinalPath
+        });
+    }
+
+    function recordPageInGraph(page, direction, silent = false) {
+        if (!page || !page.title) return;
+        if (typeof d3 === "undefined") return;
+
+        if (graphEmptyState) graphEmptyState.classList.add("d-none");
+        if (graphCard) graphCard.classList.remove("d-none");
+
+        const pageTitle = page.title;
+        const isStart = pageTitle === graphStartId;
+        const isTarget = pageTitle === graphTargetId;
+        const isVia = pageTitle === graphViaId;
+        const type = isStart ? "start" : isTarget ? "target" : isVia ? "via" : (direction || "forward");
+
+        const isNewNode = !graphNodesMap.has(pageTitle);
+
+        const node = addGraphNode({
+            id: pageTitle,
+            title: pageTitle,
+            type: type,
+            depth: page.depth !== undefined ? page.depth : 0,
+            links_count: page.links_count || 0,
+            snippet: page.snippet || "",
+            url: page.url || ""
+        });
+
+        let newLinksCount = 0;
+        // If path_so_far is available, wire the parent-child chain
+        const trail = page.path_so_far || [];
+        if (trail.length >= 2) {
+            for (let i = 0; i < trail.length - 1; i++) {
+                const src = trail[i];
+                const dst = trail[i + 1];
+                const srcType = src === graphStartId ? "start" : (src === graphViaId ? "via" : direction);
+                const dstType = dst === graphTargetId ? "target" : (dst === graphViaId ? "via" : direction);
+                addGraphNode({ id: src, title: src, type: srcType, depth: i });
+                addGraphNode({ id: dst, title: dst, type: dstType, depth: i + 1 });
+                const linkKey = `${src}|${dst}`;
+                if (!graphLinksSet.has(linkKey)) newLinksCount++;
+                addGraphLink(src, dst, direction);
+            }
+        } else if (trail.length === 1 && trail[0] !== pageTitle) {
+            const srcType = trail[0] === graphStartId ? "start" : (trail[0] === graphViaId ? "via" : direction);
+            addGraphNode({ id: trail[0], title: trail[0], type: srcType, depth: 0 });
+            const linkKey = `${trail[0]}|${pageTitle}`;
+            if (!graphLinksSet.has(linkKey)) newLinksCount++;
+            addGraphLink(trail[0], pageTitle, direction);
+        }
+
+        updateGraphD3Elements();
+
+        if (!silent && (isNewNode || newLinksCount > 0)) {
+            playGraphPop("node", {
+                direction: direction,
+                depth: page.depth !== undefined ? page.depth : 0,
+            });
+        }
+    }
+
+    function highlightFinalPathInGraph(pathTitles, immediate = false) {
+        if (!pathTitles || pathTitles.length < 2) return;
+        if (typeof d3 === "undefined") return;
+
+        clearGraphPathTimers();
+        graphFinalPathSet = new Set(pathTitles);
+        if (graphPathLegend) graphPathLegend.classList.remove("d-none");
+
+        // Release pinned positions on Start, Target, and Via so they dynamically balance
+        const startN = graphNodesMap.get(graphStartId);
+        if (startN) startN.fx = null;
+        const targetN = graphNodesMap.get(graphTargetId);
+        if (targetN) targetN.fx = null;
+        const viaN = graphNodesMap.get(graphViaId);
+        if (viaN) viaN.fx = null;
+
+        // Dim background exploration nodes and links immediately
+        if (graphContainerGroup) {
+            graphContainerGroup.selectAll("line.graph-link")
+                .classed("graph-link-dimmed", true);
+
+            graphContainerGroup.selectAll("g.graph-node")
+                .classed("graph-node-dimmed", d => !graphFinalPathSet.has(d.id));
+        }
+
+        if (immediate) {
+            // Instant render for history restoration
+            for (let i = 0; i < pathTitles.length; i++) {
+                const title = pathTitles[i];
+                const isStart = i === 0;
+                const isTarget = i === pathTitles.length - 1;
+                const isVia = title === graphViaId;
+                const node = addGraphNode({
+                    id: title,
+                    title: title,
+                    type: isStart ? "start" : isTarget ? "target" : isVia ? "via" : "path",
+                    depth: i
+                });
+                node.isFinalPath = true;
+
+                if (i < pathTitles.length - 1) {
+                    const next = pathTitles[i + 1];
+                    const nextIsTarget = (i + 1 === pathTitles.length - 1);
+                    const nextIsVia = next === graphViaId;
+                    addGraphNode({
+                        id: next,
+                        title: next,
+                        type: nextIsTarget ? "target" : nextIsVia ? "via" : "path",
+                        depth: i + 1
+                    });
+                    addGraphLink(title, next, "path", true);
+                }
+            }
+
+            updateGraphD3Elements();
+            if (graphContainerGroup) {
+                graphContainerGroup.selectAll("line.graph-link")
+                    .classed("graph-link-dimmed", d => !d.isFinalPath);
+            }
+            if (graphSimulation) {
+                graphSimulation.alpha(0.6).restart();
+            }
+            setTimeout(() => zoomToDiscoveredPath(pathTitles), 300);
+            return;
+        }
+
+        // --- Progressive Emergence (600ms intervals per node) ---
+        const intervalMs = 600;
+
+        pathTitles.forEach((title, idx) => {
+            const timer = setTimeout(() => {
+                if (!forceGraphSvg || typeof d3 === "undefined") return;
+
+                const isStart = idx === 0;
+                const isTarget = idx === pathTitles.length - 1;
+                const isVia = title === graphViaId;
+
+                // 1. Reveal/Activate node
+                const node = addGraphNode({
+                    id: title,
+                    title: title,
+                    type: isStart ? "start" : isTarget ? "target" : isVia ? "via" : "path",
+                    depth: idx
+                });
+                node.isFinalPath = true;
+
+                // 2. Connect incoming link from previous node
+                if (idx > 0) {
+                    const prevTitle = pathTitles[idx - 1];
+                    addGraphLink(prevTitle, title, "path", true);
+                }
+
+                // 3. Update D3 elements and gently wake physics simulation
+                updateGraphD3Elements();
+
+                if (graphSimulation) {
+                    graphSimulation.alpha(0.35).restart();
+                }
+
+                // 4. Staged pop animation for the emerging node
+                if (graphContainerGroup) {
+                    const nodeG = graphContainerGroup.selectAll("g.graph-node")
+                        .filter(d => d.id === title);
+
+                    nodeG.classed("graph-node-dimmed", false);
+
+                    nodeG.select("circle")
+                        .attr("r", 0)
+                        .transition()
+                        .duration(320)
+                        .ease(d3.easeBackOut.overshoot(2.2))
+                        .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 23 : 19)
+                        .transition()
+                        .duration(280)
+                        .ease(d3.easeCubicOut)
+                        .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 17 : 14);
+
+                    // Animate newly created link from previous node
+                    if (idx > 0) {
+                        const prevTitle = pathTitles[idx - 1];
+                        const linkLine = graphContainerGroup.selectAll("line.graph-link")
+                            .filter(l => {
+                                const s = l.source.id || l.source;
+                                const t = l.target.id || l.target;
+                                return (s === prevTitle && t === title) || (s === title && t === prevTitle);
+                            });
+
+                        linkLine
+                            .classed("graph-link-highlight", true)
+                            .classed("graph-link-dimmed", false)
+                            .attr("stroke-width", 1)
+                            .transition()
+                            .duration(400)
+                            .attr("stroke-width", 4.2);
+                    }
+                }
+
+                // Play pop sound for emerging path node in the graph
+                playGraphPop("path-node", { index: idx, total: pathTitles.length });
+
+                // 5. When all nodes have emerged, focus the camera onto the complete path
+                if (idx === pathTitles.length - 1) {
+                    const finishTimer = setTimeout(() => {
+                        zoomToDiscoveredPath(pathTitles);
+                    }, 400);
+                    graphPathEmergenceTimers.push(finishTimer);
+                }
+
+            }, idx * intervalMs);
+
+            graphPathEmergenceTimers.push(timer);
+        });
+    }
+
+    function zoomToDiscoveredPath(pathTitles) {
+        if (!graphSvg || !graphZoom || !forceGraphSvg || !pathTitles || pathTitles.length === 0) return;
+        const pathNodes = pathTitles.map(t => graphNodesMap.get(t)).filter(n => n && n.x !== undefined && n.y !== undefined);
+        if (pathNodes.length === 0) return;
+
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        pathNodes.forEach(n => {
+            if (n.x < minX) minX = n.x;
+            if (n.x > maxX) maxX = n.x;
+            if (n.y < minY) minY = n.y;
+            if (n.y > maxY) maxY = n.y;
+        });
+
+        const width = forceGraphSvg.clientWidth || 800;
+        const height = forceGraphSvg.clientHeight || 480;
+        const padding = 80;
+
+        const dx = Math.max(maxX - minX, 100);
+        const dy = Math.max(maxY - minY, 100);
+        const midX = (minX + maxX) / 2;
+        const midY = (minY + maxY) / 2;
+
+        const scale = Math.max(0.35, Math.min(2.0, 0.85 / Math.max(dx / (width - padding * 2), dy / (height - padding * 2))));
+        const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
+
+        graphSvg.transition()
+            .duration(850)
+            .ease(d3.easeCubicOut)
+            .call(graphZoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+    }
+
+    function startOrUpdateSimulation() {
+        if (typeof d3 === "undefined" || !graphContainerGroup) return;
+
+        if (!graphSimulation) {
+            graphSimulation = d3.forceSimulation(graphData.nodes)
+                .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(d => d.isFinalPath ? 75 : 65))
+                .force("charge", d3.forceManyBody().strength(d => (d.type === "start" || d.type === "target" || d.type === "via") ? -350 : -140))
+                .force("collide", d3.forceCollide().radius(26).iterations(2))
+                .force("center", d3.forceCenter(0, 0).strength(0.06))
+                .force("x", d3.forceX(d => d.type === "start" ? -180 : d.type === "target" ? 180 : 0).strength(0.04))
+                .force("y", d3.forceY(0).strength(0.04))
+                .on("tick", ticked);
+        } else {
+            graphSimulation.nodes(graphData.nodes);
+            graphSimulation.force("link").links(graphData.links);
+            graphSimulation.alpha(0.35).restart();
+        }
+
+        updateGraphD3Elements();
+    }
+
+    function updateGraphD3Elements() {
+        if (!graphContainerGroup || typeof d3 === "undefined") return;
+
+        if (graphSimulation) {
+            graphSimulation.nodes(graphData.nodes);
+            graphSimulation.force("link").links(graphData.links);
+            graphSimulation.alpha(0.3).restart();
+        }
+
+        const linksLayer = graphContainerGroup.select(".links-layer");
+        const nodesLayer = graphContainerGroup.select(".nodes-layer");
+
+        // ---- LINKS ----
+        const linkSel = linksLayer.selectAll("line.graph-link")
+            .data(graphData.links, d => `${(d.source.id || d.source)}|${(d.target.id || d.target)}`);
+
+        linkSel.exit().remove();
+
+        const linkEnter = linkSel.enter().append("line")
+            .attr("class", d => `graph-link ${d.isFinalPath ? "graph-link-highlight" : ""}`)
+            .attr("stroke", d => {
+                if (d.isFinalPath) return "#eab308";
+                return d.direction === "backward" ? "rgba(6, 182, 212, 0.45)" : "rgba(59, 130, 246, 0.45)";
+            })
+            .attr("stroke-width", d => d.isFinalPath ? 3.5 : 1.8)
+            .attr("marker-end", d => {
+                if (d.isFinalPath) return "url(#arrow-path)";
+                return d.direction === "backward" ? "url(#arrow-backward)" : "url(#arrow-forward)";
+            });
+
+        linkSel.merge(linkEnter)
+            .classed("graph-link-highlight", d => !!d.isFinalPath)
+            .attr("stroke", d => {
+                if (d.isFinalPath) return "#eab308";
+                return d.direction === "backward" ? "rgba(6, 182, 212, 0.45)" : "rgba(59, 130, 246, 0.45)";
+            })
+            .attr("stroke-width", d => d.isFinalPath ? 3.5 : 1.8)
+            .attr("marker-end", d => {
+                if (d.isFinalPath) return "url(#arrow-path)";
+                return d.direction === "backward" ? "url(#arrow-backward)" : "url(#arrow-forward)";
+            });
+
+        // ---- NODES ----
+        const nodeSel = nodesLayer.selectAll("g.graph-node")
+            .data(graphData.nodes, d => d.id);
+
+        nodeSel.exit().remove();
+
+        const nodeEnter = nodeSel.enter().append("g")
+            .attr("class", "graph-node")
+            .style("cursor", "pointer")
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended)
+            );
+
+        // Circle
+        nodeEnter.append("circle")
+            .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 17 : (d.isFinalPath ? 14 : 10))
+            .attr("fill", d => getNodeColor(d))
+            .attr("stroke", "#ffffff")
+            .attr("stroke-width", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 3 : 2)
+            .style("transition", "r 0.25s ease, fill 0.25s ease");
+
+        // Icon text or label inside important nodes
+        nodeEnter.append("text")
+            .attr("class", "node-icon")
+            .attr("text-anchor", "middle")
+            .attr("dy", "0.35em")
+            .attr("fill", "#ffffff")
+            .attr("font-size", d => (d.type === "start" || d.type === "target" || d.type === "via") ? "11px" : "9px")
+            .attr("font-weight", "bold")
+            .text(d => {
+                if (d.type === "start") return "S";
+                if (d.type === "target") return "T";
+                if (d.type === "via") return "V";
+                if (d.isFinalPath) return "★";
+                return "";
+            });
+
+        // Title Label
+        nodeEnter.append("text")
+            .attr("class", "node-label")
+            .attr("x", 0)
+            .attr("y", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 27 : 20)
+            .attr("text-anchor", "middle")
+            .attr("font-size", d => (d.type === "start" || d.type === "target" || d.type === "via") ? "12px" : "10px")
+            .attr("font-weight", d => (d.type === "start" || d.type === "target" || d.type === "via" || d.isFinalPath) ? "bold" : "500")
+            .attr("fill", "var(--bs-body-color, #1f2937)")
+            .text(d => truncateTitle(d.title, 18))
+            .style("paint-order", "stroke")
+            .style("stroke", "var(--bs-body-bg, #ffffff)")
+            .style("stroke-width", "3px")
+            .style("stroke-linejoin", "round");
+
+        // Hover & Click Interactions
+        nodeEnter
+            .on("mouseenter", (event, d) => showGraphTooltip(event, d))
+            .on("mousemove", (event) => positionGraphTooltip(event))
+            .on("mouseleave", () => hideGraphTooltip())
+            .on("click", (event, d) => {
+                if (event.defaultPrevented) return;
+                const lang = appSettings.lang || "en";
+                window.open(`https://${lang}.wikipedia.org/wiki/${encodeURIComponent(d.title.replace(/ /g, "_"))}`, "_blank");
+            });
+
+        // Merge updates
+        const nodeMerged = nodeSel.merge(nodeEnter);
+        nodeMerged.select("circle")
+            .attr("r", d => (d.type === "start" || d.type === "target" || d.type === "via") ? 17 : (d.isFinalPath ? 14 : 10))
+            .attr("fill", d => getNodeColor(d))
+            .attr("stroke", d => d.isFinalPath ? "#facc15" : (d.type === "via" ? "#c084fc" : "#ffffff"))
+            .attr("stroke-width", d => d.isFinalPath ? 3.5 : ((d.type === "start" || d.type === "target" || d.type === "via") ? 3 : 2))
+            .classed("graph-node-highlight", d => !!d.isFinalPath)
+            .classed("graph-node-via", d => d.type === "via");
+
+        nodeMerged.select("text.node-icon")
+            .text(d => {
+                if (d.type === "start") return "S";
+                if (d.type === "target") return "T";
+                if (d.type === "via") return "V";
+                if (d.isFinalPath) return "★";
+                return "";
+            });
+
+        nodeMerged.select("text.node-label")
+            .attr("font-weight", d => (d.type === "start" || d.type === "target" || d.type === "via" || d.isFinalPath) ? "bold" : "500")
+            .attr("fill", d => d.isFinalPath ? "var(--bs-primary, #2563eb)" : (d.type === "via" ? "#9333ea" : "var(--bs-body-color, #1f2937)"));
+    }
+
+    function getNodeColor(d) {
+        if (d.type === "start") return "#10b981"; // emerald green
+        if (d.type === "target") return "#ef4444"; // red
+        if (d.type === "via") return "#9333ea"; // purple via article
+        if (d.isFinalPath) return "#f59e0b"; // amber gold
+        if (d.type === "backward") return "#06b6d4"; // cyan
+        return "#3b82f6"; // blue forward
+    }
+
+    function truncateTitle(str, maxLen = 16) {
+        if (!str) return "";
+        return str.length > maxLen ? str.slice(0, maxLen - 1) + "…" : str;
+    }
+
+    function ticked() {
+        if (!graphContainerGroup) return;
+
+        graphContainerGroup.selectAll("line.graph-link")
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        graphContainerGroup.selectAll("g.graph-node")
+            .attr("transform", d => `translate(${d.x},${d.y})`);
+    }
+
+    function dragstarted(event, d) {
+        if (!event.active && graphSimulation) graphSimulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+
+    function dragended(event, d) {
+        if (!event.active && graphSimulation) graphSimulation.alphaTarget(0);
+        // Leave start, target, and via fixed if search is still ongoing, otherwise release
+        if (!graphFinalPathSet.size && (d.type === "start" || d.type === "target" || d.type === "via")) {
+            d.fx = d.x;
+            d.fy = d.y;
+        } else {
+            d.fx = null;
+            d.fy = null;
+        }
+    }
+
+    function showGraphTooltip(event, d) {
+        if (!graphTooltip) return;
+        currentTooltipNodeId = d.id;
+
+        const typeLabel = d.type === "start" ? "Start Article" :
+                          d.type === "target" ? "Target Article" :
+                          d.type === "via" ? "Via Milestone Article" :
+                          d.isFinalPath ? "Discovered Path" :
+                          d.type === "backward" ? "Backward Frontier" : "Forward Frontier";
+
+        const badgeClass = d.type === "start" ? "text-bg-success" :
+                           d.type === "target" ? "text-bg-danger" :
+                           d.type === "via" ? "text-bg-purple text-white" :
+                           d.isFinalPath ? "text-bg-warning text-dark" :
+                           d.type === "backward" ? "text-bg-info text-dark" : "text-bg-primary";
+
+        let snippetText = d.snippet || graphSnippetCache.get(d.id) || "";
+
+        let snippetHtml = "";
+        if (snippetText) {
+            snippetHtml = `<div class="text-muted small text-truncate-2" style="font-size: 0.75rem; max-height: 48px; overflow: hidden;" title="${escapeHtml(snippetText)}">${escapeHtml(snippetText)}</div>`;
+        } else {
+            snippetHtml = `<div id="graphTooltipSnippet" class="text-muted small text-truncate-2" style="font-size: 0.75rem; max-height: 48px; overflow: hidden;"><span class="spinner-border spinner-border-sm me-1 text-secondary" style="width: 0.65rem; height: 0.65rem;" role="status"></span>Loading summary...</div>`;
+        }
+
+        graphTooltip.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                <span class="badge ${badgeClass} text-uppercase" style="font-size: 0.65rem;">${typeLabel}</span>
+                <span class="text-secondary small">Hop ${d.depth !== undefined ? d.depth : 0}</span>
+            </div>
+            <div class="fw-bold mb-1 text-truncate">${escapeHtml(d.title)}</div>
+            ${d.links_count ? `<div class="text-secondary small mb-1"><i class="bi bi-link-45deg"></i> ${d.links_count} links explored</div>` : ""}
+            ${snippetHtml}
+            <div class="text-primary small mt-1" style="font-size: 0.7rem;"><i class="bi bi-box-arrow-up-right me-1"></i>Click to open in Wikipedia</div>
+        `;
+        graphTooltip.classList.remove("d-none");
+        positionGraphTooltip(event);
+
+        if (!snippetText) {
+            const nodeId = d.id;
+            const nodeTitle = d.title || d.id;
+            const lang = appSettings.lang || "en";
+            fetch(`/api/info?title=${encodeURIComponent(nodeTitle)}&lang=${encodeURIComponent(lang)}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(info => {
+                    const fetchedSnippet = (info && (info.extract || info.description)) ? (info.extract || info.description) : "No summary available.";
+                    d.snippet = fetchedSnippet;
+                    graphSnippetCache.set(nodeId, fetchedSnippet);
+                    if (currentTooltipNodeId === nodeId) {
+                        const snippetEl = document.getElementById("graphTooltipSnippet");
+                        if (snippetEl) {
+                            snippetEl.textContent = fetchedSnippet;
+                            snippetEl.title = fetchedSnippet;
+                        }
+                    }
+                })
+                .catch(() => {
+                    const fallbackSnippet = "No summary available.";
+                    d.snippet = fallbackSnippet;
+                    graphSnippetCache.set(nodeId, fallbackSnippet);
+                    if (currentTooltipNodeId === nodeId) {
+                        const snippetEl = document.getElementById("graphTooltipSnippet");
+                        if (snippetEl) {
+                            snippetEl.textContent = fallbackSnippet;
+                        }
+                    }
+                });
+        }
+    }
+
+    function positionGraphTooltip(event) {
+        if (!graphTooltip || !graphContainer) return;
+        const bounds = graphContainer.getBoundingClientRect();
+        const mouseX = event.clientX - bounds.left;
+        const mouseY = event.clientY - bounds.top;
+        const ttWidth = graphTooltip.offsetWidth || 260;
+        const ttHeight = graphTooltip.offsetHeight || 120;
+
+        let left = mouseX + 15;
+        let top = mouseY + 15;
+
+        if (left + ttWidth > bounds.width) left = mouseX - ttWidth - 15;
+        if (top + ttHeight > bounds.height) top = mouseY - ttHeight - 15;
+
+        graphTooltip.style.left = `${Math.max(5, left)}px`;
+        graphTooltip.style.top = `${Math.max(5, top)}px`;
+    }
+
+    function hideGraphTooltip() {
+        currentTooltipNodeId = null;
+        if (graphTooltip) graphTooltip.classList.add("d-none");
+    }
+
+    // --- Final Path Screenshot Carousel ---
+    let pathScreenshotCache = {};
+    let pathCarouselToken = 0;
+    function renderPathCarousel(path, viaIndex) {
+        const card = document.getElementById("pathCarouselCard");
+        const track = document.getElementById("pathCarouselTrack");
+        const countBadge = document.getElementById("pathCarouselCount");
+        if (!card || !track) return;
+        track.innerHTML = "";
+
+        const norm = (t) => (t || "").replace(/_/g, " ").trim().toLowerCase();
+        const shots = {};
+        visitedPagesList.forEach(p => {
+            const key = norm(p.title);
+            if (p.screenshot && !shots[key]) shots[key] = p;
+        });
+
+        // Screenshots regenerated earlier for this path (persisted in history)
+        const extra = pathScreenshotCache;
+        const items = (path || []).map((title, index) => {
+            const page = shots[norm(title)] || (extra[norm(title)] ? { screenshot: extra[norm(title)] } : null);
+            return { title, index, page };
+        });
+        if (!items.length) {
+            card.classList.add("d-none");
+            return;
+        }
+
+        const slides = [];
+        items.forEach(({ title, index, page }) => {
+            const last = index === path.length - 1;
+            const label = index === 0 ? "Start" : last ? "Target" : (viaIndex === index ? `Via · Hop ${index}` : `Hop ${index}`);
+            const el = document.createElement("div");
+            el.className = "path-carousel-item";
+            const fillImage = (shot) => {
+                el.querySelector(".path-carousel-empty, img")?.remove();
+                const img = document.createElement("img");
+                img.src = shot;
+                img.alt = `Screenshot of ${title}`;
+                img.addEventListener("click", () => openScreenshotModal(title, shot));
+                el.prepend(img);
+            };
+            if (page) {
+                fillImage(page.screenshot);
+            } else {
+                el.insertAdjacentHTML("beforeend", `<div class="path-carousel-empty"><span class="spinner-border text-secondary" role="status"></span></div>`);
+                slides.push({ title, el, fillImage });
+            }
+            el.insertAdjacentHTML("beforeend", `
+                <div class="path-carousel-caption">
+                    <div class="text-secondary text-uppercase" style="font-size: 0.7rem;">${label}</div>
+                    <div class="fw-semibold text-truncate" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                </div>`);
+            track.appendChild(el);
+        });
+
+        countBadge.textContent = items.length;
+        card.classList.remove("d-none");
+        track.scrollLeft = 0;
+
+        // Re-create any missing screenshots one at a time
+        const token = ++pathCarouselToken;
+        const lang = appSettings.lang || "en";
+        (async () => {
+            for (const s of slides) {
+                if (token !== pathCarouselToken) return; // a newer render superseded this one
+                try {
+                    const res = await fetch(`/api/screenshot?lang=${encodeURIComponent(lang)}&title=${encodeURIComponent(s.title)}`);
+                    if (!res.ok) throw new Error(`status ${res.status}`);
+                    const data = await res.json();
+                    if (!data.screenshot) throw new Error("empty screenshot");
+                    pathScreenshotCache[norm(s.title)] = data.screenshot;
+                    s.fillImage(data.screenshot);
+                    persistPathScreenshots();
+                } catch (err) {
+                    console.warn("Could not re-create screenshot for", s.title, err);
+                    s.el.querySelector(".path-carousel-empty").innerHTML = `<i class="bi bi-image fs-1" title="Screenshot unavailable"></i>`;
+                }
+            }
+        })();
+    }
+
+    function persistPathScreenshots() {
+        const item = searchHistory.find(h => h.id === activeHistoryId);
+        if (item) {
+            item.path_screenshots = { ...pathScreenshotCache };
+            saveHistoryToStorage();
+        }
+    }
+
+    (function initPathCarouselControls() {
+        const track = document.getElementById("pathCarouselTrack");
+        const prev = document.getElementById("pathCarouselPrev");
+        const next = document.getElementById("pathCarouselNext");
+        if (!track || !prev || !next) return;
+        const step = () => Math.max(track.clientWidth * 0.8, 200);
+        prev.addEventListener("click", () => track.scrollBy({ left: -step(), behavior: "smooth" }));
+        next.addEventListener("click", () => track.scrollBy({ left: step(), behavior: "smooth" }));
+        track.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowLeft") { e.preventDefault(); prev.click(); }
+            if (e.key === "ArrowRight") { e.preventDefault(); next.click(); }
+        });
+    })();
+
+    // --- Render Intermediate Links Used & Algorithmic Rationale ---
+    function renderIntermediateSteps(steps, assessments = null) {
+        if (!intermediateStepsList || !intermediateStepsCard) return;
+        intermediateStepsList.innerHTML = "";
+
+        if (!steps || steps.length === 0) {
+            intermediateStepsCard.classList.add("d-none");
+            return;
+        }
+
+        intermediateStepsCard.classList.remove("d-none");
+        stepsTotalBadge.textContent = `${steps.length} Hop Link${steps.length === 1 ? "" : "s"} Traversed`;
+
+        steps.forEach((step, idx) => {
+            const card = document.createElement("div");
+            let borderClass = "";
+            if (step.badge && (step.badge.includes("Meeting") || step.badge.includes("Bridge"))) {
+                borderClass = "step-meeting";
+            } else if (step.badge && step.badge.includes("Target")) {
+                borderClass = "step-target";
+            } else if (step.is_feeder) {
+                borderClass = "step-feeder";
+            } else if (step.badge && step.badge.includes("Hub")) {
+                borderClass = "step-hub";
+            }
+
+            card.className = `card border rounded-3 p-3 shadow-sm step-card ${borderClass}`;
+
+            const scoreVal = typeof step.score === "number" ? step.score : parseFloat(step.score);
+            let scoreBadgeClass = "bg-body-secondary text-secondary border";
+            if (!isNaN(scoreVal)) {
+                if (scoreVal > 0) scoreBadgeClass = "bg-success-subtle text-success-emphasis border border-success-subtle";
+                else if (scoreVal < 0) scoreBadgeClass = "bg-danger-subtle text-danger-emphasis border border-danger-subtle";
+            }
+
+            const formattedScore = typeof step.score === "number" 
+                ? `${step.score > 0 ? "+" : ""}${step.score.toLocaleString()}` 
+                : step.score;
+
+            // Context snippet: 15 words before and 15 words after
+            let contextSnippetHtml = "";
+            const hasBefore = Boolean(step.words_before && step.words_before.trim());
+            const hasAfter = Boolean(step.words_after && step.words_after.trim());
+            const anchorText = step.anchor_text || step.to_title;
+            const isBacklinksPlaceholder = !step.section || step.section === "Backlinks / Incoming";
+            const sectionText = isBacklinksPlaceholder ? "" : step.section;
+
+            if (hasBefore || hasAfter) {
+                const beforePart = hasBefore ? `... ${formatTextWithMath(step.words_before)}` : "(Section start)";
+                const afterPart = hasAfter ? `${formatTextWithMath(step.words_after)} ...` : "(Section end)";
+                contextSnippetHtml = `
+                    <div class="step-context-box p-2.5 rounded-2 bg-body-tertiary border small mb-2">
+                        <div class="d-flex align-items-center justify-content-between text-muted mb-1" style="font-size: 0.76rem;">
+                            <span>
+                                <i class="bi bi-quote text-success me-1"></i>
+                                In-page context on <strong>${escapeHtml(step.from_title)}</strong>:
+                            </span>
+                            <span class="badge bg-secondary-subtle text-secondary border font-monospace" style="font-size: 0.7rem;">
+                                15 words before &amp; after
+                            </span>
+                        </div>
+                        <div class="step-context-text text-body">
+                            <span class="text-secondary">${beforePart}</span>
+                            <mark class="step-anchor-highlight px-2 py-0.5 mx-1 rounded">${formatTextWithMath(anchorText)}</mark>
+                            <span class="text-secondary">${afterPart}</span>
+                        </div>
+                    </div>
+                `;
+            } else if (step.is_feeder || isBacklinksPlaceholder) {
+                contextSnippetHtml = `
+                    <div class="p-2.5 rounded-2 bg-body-tertiary border small text-muted mb-2 d-flex align-items-center gap-2">
+                        <i class="bi bi-diagram-3 text-info"></i>
+                        <span>Discovered via Wikipedia incoming backlinks graph to <strong>${escapeHtml(step.to_title)}</strong>.</span>
+                    </div>
+                `;
+            }
+
+            // Section / Subtitle indicator badge
+            let sectionHtml = "";
+            if (!isBacklinksPlaceholder && sectionText) {
+                sectionHtml = `
+                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 small">
+                        <span class="text-body-secondary fw-semibold">
+                            <i class="bi bi-bookmark-fill text-warning me-1"></i>Found under section / subtitle:
+                        </span>
+                        <span class="badge bg-dark-subtle text-dark-emphasis border border-secondary-subtle px-2 py-1">
+                            ${escapeHtml(sectionText)}
+                        </span>
+                    </div>
+                `;
+            } else {
+                sectionHtml = `
+                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 small">
+                        <span class="text-body-secondary fw-semibold">
+                            <i class="bi bi-diagram-3-fill text-info me-1"></i>Link Source:
+                        </span>
+                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-2 py-1">
+                            Wikipedia Incoming Backlinks Graph
+                        </span>
+                    </div>
+                `;
+            }
+
+            let reasonsHtml = "";
+            if (step.reasons && step.reasons.length > 0) {
+                const pills = step.reasons.map(r => {
+                    const isPenalty = r.includes("(-") || r.includes("Penalized") || r.includes("penalty");
+                    const isBonus = r.includes("(+") || r.includes("Match") || r.includes("overlap");
+                    const icon = isPenalty 
+                        ? `<i class="bi bi-dash-circle text-danger me-1"></i>`
+                        : isBonus
+                        ? `<i class="bi bi-plus-circle text-success me-1"></i>`
+                        : `<i class="bi bi-info-circle text-info me-1"></i>`;
+                    const badgeClass = isPenalty
+                        ? "bg-danger-subtle text-danger-emphasis border-danger-subtle"
+                        : isBonus
+                        ? "bg-success-subtle text-success-emphasis border-success-subtle"
+                        : "bg-body-secondary text-secondary-emphasis border";
+                    return `
+                        <span class="badge ${badgeClass} border fw-normal py-1 px-2">
+                            ${icon}${escapeHtml(r)}
+                        </span>
+                    `;
+                }).join("");
+                reasonsHtml = `
+                    <div class="mt-2 pt-2 border-top">
+                        <div class="text-secondary small fw-semibold mb-1">
+                            <i class="bi bi-sliders2 text-primary me-1"></i>Score Breakdown &amp; Factors:
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            ${pills}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Multiple Badges support
+            let badgesHtml = "";
+            if (Array.isArray(step.badges) && step.badges.length > 0) {
+                badgesHtml = step.badges.map(b => {
+                    const text = typeof b === "string" ? b : b.text || "";
+                    const bClass = (typeof b === "object" && b.class) ? b.class : "bg-secondary text-white";
+                    return `<span class="badge fs-6 px-2.5 py-1 ${bClass}">${escapeHtml(text)}</span>`;
+                }).join(" ");
+            } else {
+                badgesHtml = `<span class="badge fs-6 px-2.5 py-1 ${step.badge_class || 'bg-secondary text-white'}">${escapeHtml(step.badge || 'Candidate Link')}</span>`;
+            }
+
+            // Article Quality Assessment Scores & WikiProjects
+            const fromAssessment = getAssessmentData(step.from_title, assessments);
+            const toAssessment = getAssessmentData(step.to_title, assessments);
+
+            const fromBadge = fromAssessment ? renderAssessmentBadgeHtml(fromAssessment) : "";
+            const toBadge = toAssessment ? renderAssessmentBadgeHtml(toAssessment) : "";
+
+            const fromWikiProject = fromAssessment ? renderWikiProjectHtml(fromAssessment) : "";
+            const toWikiProject = toAssessment ? renderWikiProjectHtml(toAssessment) : "";
+
+            let assessmentBoxHtml = "";
+            if (fromAssessment || toAssessment) {
+                assessmentBoxHtml = `
+                    <div class="p-3 rounded-3 bg-body-tertiary border mb-3">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-6 d-flex flex-column gap-1.5">
+                                <div class="d-flex align-items-center flex-wrap gap-2">
+                                    <span class="text-secondary fw-semibold">
+                                        <i class="bi bi-file-earmark-text text-primary me-1"></i>${escapeHtml(step.from_title)}:
+                                    </span>
+                                    ${fromBadge}
+                                </div>
+                                ${fromWikiProject}
+                            </div>
+                            <div class="col-md-6 d-flex flex-column gap-1.5">
+                                <div class="d-flex align-items-center flex-wrap gap-2">
+                                    <span class="text-secondary fw-semibold">
+                                        <i class="bi bi-link-45deg text-success me-1"></i>${escapeHtml(step.to_title)}:
+                                    </span>
+                                    ${toBadge}
+                                </div>
+                                ${toWikiProject}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            card.innerHTML = `
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 pb-3 mb-3 border-bottom">
+                    <div class="d-flex align-items-center flex-wrap gap-2.5">
+                        <span class="badge bg-primary m-2 px-3 py-1.5 rounded-pill fw-bold fs-6">
+                            Hop ${step.hop || (idx + 1)}
+                        </span>
+                        <div class="d-flex align-items-center flex-wrap gap-2 fs-5">
+                            <a href="${step.from_url || '#'}" target="_blank" class="text-body-emphasis text-decoration-none fw-semibold">
+                                ${escapeHtml(step.from_title)}
+                            </a>
+                            <i class="bi bi-arrow-right text-primary mx-1"></i>
+                            <a href="${step.to_url || '#'}" target="_blank" class="text-primary text-decoration-none fw-bold">
+                                ${escapeHtml(step.to_title)}
+                            </a>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        ${badgesHtml}
+                        <span class="badge ${scoreBadgeClass} font-monospace fs-6 px-3 py-1.5">Score: ${formattedScore}</span>
+                    </div>
+                </div>
+
+                ${assessmentBoxHtml}
+
+                <div class="p-3 rounded-3 step-explanation-box mb-3">
+                    <div class="text-body-secondary">
+                        <i class="bi bi-cpu-fill text-primary me-1"></i>
+                        <strong class="text-body-emphasis">Why this link was chosen:</strong>
+                        ${formatTextWithMath(step.explanation || "Selected based on graph traversal priority.")}
+                    </div>
+                </div>
+
+                ${sectionHtml}
+
+                ${contextSnippetHtml}
+
+                ${reasonsHtml}
+            `;
+
+            renderMathInContainer(card);
+            intermediateStepsList.appendChild(card);
+        });
+    }
+
+    // --- Render Live Path Trail ---
+    function renderLiveTrail(pathArray) {
+        if (!pathArray || !pathArray.length) {
+            livePathTrail.innerHTML = `<span class="text-muted">Root</span>`;
+            return;
+        }
+        livePathTrail.innerHTML = "";
+        pathArray.forEach((item, idx) => {
+            const span = document.createElement("span");
+            span.className = "badge bg-body border text-body-emphasis";
+            span.textContent = item;
+            livePathTrail.appendChild(span);
+
+            if (idx < pathArray.length - 1) {
+                const sep = document.createElement("span");
+                sep.className = "text-muted";
+                sep.innerHTML = "&rarr;";
+                livePathTrail.appendChild(sep);
             }
         });
     }
 
-    if (stopBtn) {
-        stopBtn.addEventListener("click", () => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({ action: "stop" }));
+    // --- Visited Table Row ---
+    function appendVisitedTableRow(page) {
+        const tr = document.createElement("tr");
+
+        let thumbHtml = '<span class="text-muted small">None</span>';
+        if (page.screenshot) {
+            thumbHtml = `<img src="${page.screenshot}" class="table-thumb" alt="thumbnail" title="Click to view full screenshot">`;
+        }
+
+        const isForward = page.direction !== "backward";
+        const dirBadge = isForward
+            ? `<span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="bi bi-arrow-right me-1"></i>Forward</span>`
+            : `<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle"><i class="bi bi-arrow-left me-1"></i>Backward</span>`;
+
+        const feederBadge = page.is_feeder ? '<span class="badge text-bg-warning me-1" title="Direct feeder: links directly to target!"><i class="bi bi-star-fill me-1"></i>Direct Feeder</span>' : '';
+
+        tr.innerHTML = `
+            <td class="fw-bold text-secondary">#${page.step}</td>
+            <td>${thumbHtml}</td>
+            <td>${dirBadge}</td>
+            <td>
+                <div class="fw-semibold d-flex align-items-center flex-wrap gap-1">
+                    ${feederBadge}
+                    <a href="${page.url}" target="_blank" class="text-body-emphasis text-decoration-none">
+                        ${escapeHtml(page.title)} <i class="bi bi-box-arrow-up-right text-muted small ms-1"></i>
+                    </a>
+                </div>
+            </td>
+            <td>
+                <span class="badge ${page.depth === 0 ? "text-bg-success" : page.depth === 1 ? "text-bg-info" : "text-bg-secondary"}">
+                    Hop ${page.depth}
+                </span>
+            </td>
+            <td>
+                <span class="fw-semibold font-monospace">${page.links_count.toLocaleString()}</span> <span class="text-secondary small ms-1">${(page.links_type === "incoming_backlinks" || page.direction === "backward") ? "backlinks" : "outgoing"}</span>
+            </td>
+        `;
+
+        renderMathInContainer(tr);
+
+        if (page.screenshot) {
+            const imgEl = tr.querySelector(".table-thumb");
+            if (imgEl) {
+                imgEl.addEventListener("click", () => openScreenshotModal(page.title, page.screenshot));
             }
-            setRunningState(false);
+        }
+
+        visitedTableBody.appendChild(tr);
+    }
+
+    // --- Screenshot Modal ---
+    function openScreenshotModal(title, base64Src) {
+        screenshotModalTitle.textContent = `Playwright Capture: ${title}`;
+        modalScreenshotImg.src = base64Src;
+        screenshotModal.show();
+    }
+
+    // --- Alerts ---
+    function showAlert(msg) {
+        alertMessage.textContent = msg;
+        alertCard.classList.remove("d-none");
+    }
+
+    // --- State UI Control ---
+    function setRunningState(isRunning) {
+        if (isRunning) {
+            startBtn.classList.add("d-none");
+            stopBtn.classList.remove("d-none");
+            if (randomBtn) {
+                randomBtn.disabled = true;
+                randomBtn.classList.add("disabled", "opacity-50");
+            }
+            startInput.disabled = true;
+            targetInput.disabled = true;
+            if (viaInput) viaInput.disabled = true;
+            swapBtn.disabled = true;
+        } else {
+            startBtn.classList.remove("d-none");
+            stopBtn.classList.add("d-none");
+            if (randomBtn) {
+                randomBtn.disabled = false;
+                randomBtn.classList.remove("disabled", "opacity-50");
+                randomBtn.title = `Select two random articles (${(appSettings.lang || "en").toLowerCase()}.wikipedia.org)`;
+            }
+            startInput.disabled = false;
+            targetInput.disabled = false;
+            if (viaInput) viaInput.disabled = false;
+            swapBtn.disabled = false;
+        }
+    }
+
+    function resetUI() {
+        visitedPagesList = [];
+        totalLinksAccumulated = 0;
+        currentFoundPath = [];
+        currentLinkContext = null;
+
+        progressBar.style.width = "0%";
+        progressBar.className = "progress-bar progress-bar-striped progress-bar-animated bg-primary";
+
+        kpiPagesVisited.textContent = "0";
+        kpiCurrentDepth.textContent = "0";
+        kpiLinksCount.textContent = "0";
+        kpiElapsedTime.textContent = "0.0s";
+        kpiStatusBadge.textContent = "Initializing...";
+
+        resultCard.classList.add("d-none");
+        { const pc = document.getElementById("pathCarouselCard"); if (pc) pc.classList.add("d-none"); }
+        if (resultMeetingBadge) resultMeetingBadge.classList.add("d-none");
+        if (liveDirectionBadge) {
+            liveDirectionBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle";
+            liveDirectionBadge.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i> Forward from Start`;
+        }
+        if (intermediateStepsCard) intermediateStepsCard.classList.add("d-none");
+        if (intermediateStepsList) intermediateStepsList.innerHTML = "";
+        contextCard.classList.add("d-none");
+        alertCard.classList.add("d-none");
+        if (pageStatsGraphSection) {
+            try {
+                const offcanvasInstance = bootstrap.Offcanvas.getInstance(pageStatsGraphSection);
+                if (offcanvasInstance) offcanvasInstance.hide();
+            } catch (e) {}
+        }
+        if (pageStatsChartInstance) {
+            pageStatsChartInstance.destroy();
+            pageStatsChartInstance = null;
+        }
+        const statsNavbarBadge = document.getElementById("statsNavbarBadge");
+        if (statsNavbarBadge) {
+            statsNavbarBadge.textContent = "0";
+            statsNavbarBadge.classList.add("d-none");
+        }
+        visitedTableBody.innerHTML = "";
+        intermediateCountBadge.textContent = "0";
+
+        livePageTitle.textContent = "Launching Playwright...";
+        livePageSnippet.textContent = "Opening Chromium browser instance...";
+        liveScreenshotImg.classList.add("d-none");
+        noScreenshotPlaceholder.classList.remove("d-none");
+
+        if (graphCard) graphCard.classList.add("d-none");
+        if (graphEmptyState) graphEmptyState.classList.remove("d-none");
+        if (graphSimulation) graphSimulation.stop();
+        clearGraphPathTimers();
+    }
+
+    // --- Timer ---
+    function startTimer() {
+        clearInterval(timerInterval);
+        startTime = Date.now();
+        timerInterval = setInterval(() => {
+            const elapsed = (Date.now() - startTime) / 1000;
+            kpiElapsedTime.textContent = `${elapsed.toFixed(1)}s`;
+        }, 100);
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+    }
+
+    // --- Helper: Escape HTML ---
+    function escapeHtml(str) {
+        if (!str) return "";
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // --- Math & LaTeX Rendering Helpers ---
+    function renderMathInContainer(container) {
+        if (!container) return;
+        if (typeof renderMathInElement === "function") {
+            try {
+                renderMathInElement(container, {
+                    delimiters: [
+                        { left: "$$", right: "$$", display: true },
+                        { left: "\\[", right: "\\]", display: true },
+                        { left: "$", right: "$", display: false },
+                        { left: "\\(", right: "\\)", display: false }
+                    ],
+                    throwOnError: false,
+                    ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "option"]
+                });
+            } catch (err) {
+                console.debug("KaTeX auto-render error:", err);
+            }
+        }
+    }
+
+    function formatTextWithMath(text) {
+        if (!text) return "";
+        // First escape HTML safely
+        const escaped = escapeHtml(text);
+        if (typeof katex === "undefined") {
+            return escaped;
+        }
+
+        // Match LaTeX math blocks: $$, \[, \], $, \(, \)
+        // 1. Display math: $$...$$ or \[...\]
+        // 2. Inline math: $...$ or \(...\)
+        const mathRegex = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\(.+?\\\)|\$(?:\\.|[^$\\\n])+\$)/g;
+        return escaped.replace(mathRegex, (match) => {
+            let displayMode = false;
+            let mathExpr = "";
+
+            if (match.startsWith("$$") && match.endsWith("$$")) {
+                displayMode = true;
+                mathExpr = match.slice(2, -2);
+            } else if (match.startsWith("\\[") && match.endsWith("\\]")) {
+                displayMode = true;
+                mathExpr = match.slice(2, -2);
+            } else if (match.startsWith("\\(") && match.endsWith("\\)")) {
+                displayMode = false;
+                mathExpr = match.slice(2, -2);
+            } else if (match.startsWith("$") && match.endsWith("$")) {
+                displayMode = false;
+                mathExpr = match.slice(1, -1);
+            } else {
+                return match;
+            }
+
+            // Unescape entities in formula that escapeHtml encoded (&lt;, &gt;, &amp;, etc.)
+            mathExpr = mathExpr
+                .replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<")
+                .replace(/&gt;/g, ">")
+                .replace(/&quot;/g, '"')
+                .replace(/&#039;/g, "'");
+
+            try {
+                return katex.renderToString(mathExpr, {
+                    displayMode: displayMode,
+                    throwOnError: false
+                });
+            } catch (err) {
+                return match;
+            }
         });
     }
+
+
+    // =========================================================================
+    // Article Analytics & Page Statistics Graphs (XTools & MediaWiki)
+    // =========================================================================
+
+    // Scope toggle event listeners
+    if (scopePathOnly) {
+        scopePathOnly.addEventListener("change", () => {
+            if (scopePathOnly.checked) {
+                currentStatsScope = "path";
+                renderStatsUIFromCache();
+            }
+        });
+    }
+
+    if (scopeAllVisited) {
+        scopeAllVisited.addEventListener("change", () => {
+            if (scopeAllVisited.checked) {
+                currentStatsScope = "all";
+                renderStatsUIFromCache();
+            }
+        });
+    }
+
+    // Metric dropdown option selection
+    document.querySelectorAll(".metric-option").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            const metric = btn.getAttribute("data-metric");
+            if (!metric) return;
+            currentActiveMetric = metric;
+
+            // Update active state in dropdown
+            document.querySelectorAll(".metric-option").forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+
+            // Update dropdown button label
+            if (activeMetricLabel) {
+                activeMetricLabel.textContent = btn.textContent.trim();
+            }
+
+            // Re-render chart with new metric view
+            renderPageStatsChart();
+        });
+    });
+
+    // Refresh stats button
+    if (refreshStatsBtn) {
+        refreshStatsBtn.addEventListener("click", () => {
+            fetchAndRenderPageStats(true);
+        });
+    }
+
+    // When Page Statistics offcanvas slides out, ensure Chart.js resizes to fit container width
+    if (pageStatsGraphSection) {
+        pageStatsGraphSection.addEventListener("shown.bs.offcanvas", () => {
+            if (pageStatsChartInstance) {
+                pageStatsChartInstance.resize();
+            } else {
+                renderPageStatsChart();
+            }
+        });
+    }
+
+    /**
+     * Determine article titles to display based on current scope.
+     */
+    function getActiveScopeTitles() {
+        if (currentStatsScope === "path" && currentFoundPath && currentFoundPath.length > 0) {
+            return [...currentFoundPath];
+        }
+
+        // All Explored Scope
+        const titles = [];
+        if (visitedPagesList && visitedPagesList.length > 0) {
+            visitedPagesList.forEach((p) => {
+                if (p.title && !titles.includes(p.title)) {
+                    titles.push(p.title);
+                }
+            });
+        }
+
+        // If path was discovered, ensure path pages are also included
+        if (currentFoundPath && currentFoundPath.length > 0) {
+            currentFoundPath.forEach((t) => {
+                if (t && !titles.includes(t)) {
+                    titles.push(t);
+                }
+            });
+        }
+
+        // Fallback to start and target if no pages visited yet
+        if (titles.length === 0 && currentCrawlParams) {
+            if (currentCrawlParams.start) titles.push(currentCrawlParams.start);
+            if (currentCrawlParams.via) titles.push(currentCrawlParams.via);
+            if (currentCrawlParams.target) titles.push(currentCrawlParams.target);
+        }
+
+        return titles;
+    }
+
+    /**
+     * Concurrently fetch stats for active scope pages from backend and update UI.
+     */
+    async function fetchAndRenderPageStats(forceRefresh = false) {
+        const titles = getActiveScopeTitles();
+        if (!titles || titles.length === 0) return;
+
+        if (pageStatsGraphSection) {
+            pageStatsGraphSection.classList.remove("d-none");
+        }
+
+        // Update scope counts badges
+        if (scopePathCount) {
+            scopePathCount.textContent = (currentFoundPath || []).length;
+        }
+        if (scopeAllCount) {
+            const allCount = visitedPagesList.length || (currentFoundPath || []).length;
+            scopeAllCount.textContent = allCount;
+        }
+
+        // Update navbar analytics badge
+        const statsNavbarBadge = document.getElementById("statsNavbarBadge");
+        if (statsNavbarBadge) {
+            const count = titles.length;
+            statsNavbarBadge.textContent = count;
+            if (count > 0) statsNavbarBadge.classList.remove("d-none");
+        }
+
+        // Find titles not in cache
+        const missingTitles = titles.filter((t) => forceRefresh || !pageStatsCache[t]);
+
+        if (missingTitles.length > 0) {
+            if (statsChartLoading) statsChartLoading.classList.remove("d-none");
+            try {
+                const lang = (appSettings.lang || "en").toLowerCase();
+                const encodedTitles = encodeURIComponent(missingTitles.join(","));
+                const res = await fetch(`/api/batch-page-stats?titles=${encodedTitles}&lang=${lang}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.stats) {
+                        Object.assign(pageStatsCache, data.stats);
+                    }
+                }
+            } catch (err) {
+                console.warn("[WikiHop] Failed to fetch article statistics:", err);
+            } finally {
+                if (statsChartLoading) statsChartLoading.classList.add("d-none");
+            }
+        }
+
+        renderStatsUIFromCache();
+    }
+
+    /**
+     * Render the chart, KPIs, and breakdown table using current cache and scope.
+     */
+    function renderStatsUIFromCache() {
+        const titles = getActiveScopeTitles();
+        if (!titles || titles.length === 0) return;
+
+        // Collect stats array in title order
+        const statsList = titles.map((t) => {
+            if (pageStatsCache[t]) return pageStatsCache[t];
+            // Normalize lookup if space/underscore difference
+            const underscore = t.replace(/ /g, "_");
+            const space = t.replace(/_/g, " ");
+            return pageStatsCache[underscore] || pageStatsCache[space] || {
+                title: t,
+                words: 0,
+                bytes: 0,
+                file_size_formatted: "0 B",
+                file_size_kb: 0,
+                revisions: 0,
+                editors: 0,
+                watchers: 0,
+                pageviews: 0,
+                references: 0,
+                sections: 0,
+                assessment: "",
+            };
+        });
+
+        updateStatsSummaryKpis(statsList);
+        renderPageStatsChart(titles, statsList);
+        renderStatsBreakdownTable(statsList);
+    }
+
+    /**
+     * Update the 4 standout KPI cards above the chart.
+     */
+    function updateStatsSummaryKpis(statsList) {
+        if (!statsList || statsList.length === 0) return;
+
+        const maxWordsItem = statsList.reduce((max, s) => (s.words > (max.words || 0) ? s : max), {});
+        const maxSizeItem = statsList.reduce((max, s) => (s.bytes > (max.bytes || 0) ? s : max), {});
+        const maxEditsItem = statsList.reduce((max, s) => (s.revisions > (max.revisions || 0) ? s : max), {});
+        const maxViewsItem = statsList.reduce((max, s) => (s.pageviews > (max.pageviews || 0) ? s : max), {});
+
+        if (kpiTopWordsVal) {
+            kpiTopWordsVal.textContent = maxWordsItem.words ? maxWordsItem.words.toLocaleString() : "--";
+        }
+        if (kpiTopWordsTitle) {
+            kpiTopWordsTitle.textContent = maxWordsItem.title || "No data";
+            kpiTopWordsTitle.title = maxWordsItem.title || "";
+        }
+
+        if (kpiTopSizeVal) {
+            kpiTopSizeVal.textContent = maxSizeItem.bytes ? maxSizeItem.file_size_formatted || `${maxSizeItem.file_size_kb} KB` : "--";
+        }
+        if (kpiTopSizeTitle) {
+            kpiTopSizeTitle.textContent = maxSizeItem.title || "No data";
+            kpiTopSizeTitle.title = maxSizeItem.title || "";
+        }
+
+        if (kpiTopEditsVal) {
+            kpiTopEditsVal.textContent = maxEditsItem.revisions ? maxEditsItem.revisions.toLocaleString() : "--";
+        }
+        if (kpiTopEditsTitle) {
+            kpiTopEditsTitle.textContent = maxEditsItem.title || "No data";
+            kpiTopEditsTitle.title = maxEditsItem.title || "";
+        }
+
+        if (kpiTopViewsVal) {
+            kpiTopViewsVal.textContent = maxViewsItem.pageviews ? formatCompactNumber(maxViewsItem.pageviews) : "--";
+        }
+        if (kpiTopViewsTitle) {
+            kpiTopViewsTitle.textContent = maxViewsItem.title || "No data";
+            kpiTopViewsTitle.title = maxViewsItem.title || "";
+        }
+    }
+
+    function formatCompactNumber(num) {
+        if (!num) return "0";
+        if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+        if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+        return num.toLocaleString();
+    }
+
+    /**
+     * Render the interactive Chart.js chart matching the active theme and metric.
+     */
+    function renderPageStatsChart(titles, statsList) {
+        if (!pageStatsChartCanvas || typeof Chart === "undefined") return;
+
+        if (!titles || !statsList) {
+            titles = getActiveScopeTitles();
+            statsList = titles.map((t) => pageStatsCache[t] || { title: t, words: 0, bytes: 0, revisions: 0, editors: 0, watchers: 0, pageviews: 0 });
+        }
+
+        const isDark = document.documentElement.getAttribute("data-bs-theme") === "dark";
+        const textColor = isDark ? "#cbd5e1" : "#475569";
+        const gridColor = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)";
+        const tooltipBg = isDark ? "rgba(15, 23, 42, 0.95)" : "rgba(255, 255, 255, 0.96)";
+        const tooltipText = isDark ? "#f8fafc" : "#0f172a";
+        const tooltipBorder = isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.15)";
+
+        // Destroy previous chart instance if exists
+        if (pageStatsChartInstance) {
+            pageStatsChartInstance.destroy();
+            pageStatsChartInstance = null;
+        }
+
+        // Shorten labels on x-axis if longer than 16 chars
+        const labels = titles.map((t) => {
+            const clean = t.replace(/_/g, " ");
+            return clean.length > 16 ? clean.substring(0, 14) + "..." : clean;
+        });
+
+        let datasets = [];
+        let scalesConfig = {};
+
+        if (currentActiveMetric === "words_size") {
+            // Word Count (Bar, Left Axis) & File Size (KB, Right Axis)
+            datasets = [
+                {
+                    label: "Word Count",
+                    type: "bar",
+                    data: statsList.map((s) => s.words || 0),
+                    backgroundColor: "rgba(59, 130, 246, 0.75)",
+                    borderColor: "#3b82f6",
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    yAxisID: "yWords",
+                },
+                {
+                    label: "File Size (KB)",
+                    type: "line",
+                    data: statsList.map((s) => s.file_size_kb || Math.round((s.bytes || 0) / 1024)),
+                    borderColor: "#10b981",
+                    backgroundColor: "rgba(16, 185, 129, 0.15)",
+                    pointBackgroundColor: "#10b981",
+                    pointBorderColor: "#ffffff",
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    tension: 0.25,
+                    borderWidth: 2.5,
+                    yAxisID: "ySize",
+                },
+            ];
+
+            scalesConfig = {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: textColor, font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 } },
+                },
+                yWords: {
+                    type: "linear",
+                    position: "left",
+                    beginAtZero: true,
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textColor,
+                        callback: (v) => v.toLocaleString(),
+                        font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                    },
+                    title: {
+                        display: true,
+                        text: "Words (Prose)",
+                        color: "#3b82f6",
+                        font: { weight: "600", size: 11 },
+                    },
+                },
+                ySize: {
+                    type: "linear",
+                    position: "right",
+                    beginAtZero: true,
+                    grid: { drawOnChartArea: false },
+                    ticks: {
+                        color: textColor,
+                        callback: (v) => `${v} KB`,
+                        font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                    },
+                    title: {
+                        display: true,
+                        text: "File Size (KB)",
+                        color: "#10b981",
+                        font: { weight: "600", size: 11 },
+                    },
+                },
+            };
+        } else if (currentActiveMetric === "edits_editors") {
+            // Revisions (Edits) & Distinct Editors
+            datasets = [
+                {
+                    label: "Total Revisions / Edits",
+                    type: "bar",
+                    data: statsList.map((s) => s.revisions || 0),
+                    backgroundColor: "rgba(245, 158, 11, 0.75)",
+                    borderColor: "#f59e0b",
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                },
+                {
+                    label: "Unique Editors",
+                    type: "bar",
+                    data: statsList.map((s) => s.editors || 0),
+                    backgroundColor: "rgba(139, 92, 246, 0.75)",
+                    borderColor: "#8b5cf6",
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                },
+            ];
+
+            scalesConfig = {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: textColor, font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 } },
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textColor,
+                        callback: (v) => v.toLocaleString(),
+                        font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                    },
+                    title: {
+                        display: true,
+                        text: "Count",
+                        color: textColor,
+                        font: { weight: "600", size: 11 },
+                    },
+                },
+            };
+        } else if (currentActiveMetric === "views_watchers") {
+            // 30d Pageviews & Page Watchers
+            datasets = [
+                {
+                    label: "30-Day Pageviews",
+                    type: "bar",
+                    data: statsList.map((s) => s.pageviews || 0),
+                    backgroundColor: "rgba(6, 182, 212, 0.75)",
+                    borderColor: "#06b6d4",
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    yAxisID: "yViews",
+                },
+                {
+                    label: "Page Watchers",
+                    type: "line",
+                    data: statsList.map((s) => s.watchers || 0),
+                    borderColor: "#ec4899",
+                    backgroundColor: "rgba(236, 72, 153, 0.15)",
+                    pointBackgroundColor: "#ec4899",
+                    pointBorderColor: "#ffffff",
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    tension: 0.25,
+                    borderWidth: 2.5,
+                    yAxisID: "yWatchers",
+                },
+            ];
+
+            scalesConfig = {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: textColor, font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 } },
+                },
+                yViews: {
+                    type: "linear",
+                    position: "left",
+                    beginAtZero: true,
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textColor,
+                        callback: (v) => formatCompactNumber(v),
+                        font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                    },
+                    title: {
+                        display: true,
+                        text: "30-Day Views",
+                        color: "#06b6d4",
+                        font: { weight: "600", size: 11 },
+                    },
+                },
+                yWatchers: {
+                    type: "linear",
+                    position: "right",
+                    beginAtZero: true,
+                    grid: { drawOnChartArea: false },
+                    ticks: {
+                        color: textColor,
+                        callback: (v) => v.toLocaleString(),
+                        font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                    },
+                    title: {
+                        display: true,
+                        text: "Watchers",
+                        color: "#ec4899",
+                        font: { weight: "600", size: 11 },
+                    },
+                },
+            };
+        } else if (currentActiveMetric === "refs_sections") {
+            // Citations / References & Sections Count
+            datasets = [
+                {
+                    label: "Citations / References",
+                    type: "bar",
+                    data: statsList.map((s) => s.references || 0),
+                    backgroundColor: "rgba(20, 184, 166, 0.75)",
+                    borderColor: "#14b8a6",
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                },
+                {
+                    label: "Article Sections",
+                    type: "bar",
+                    data: statsList.map((s) => s.sections || 0),
+                    backgroundColor: "rgba(99, 102, 241, 0.75)",
+                    borderColor: "#6366f1",
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                },
+            ];
+
+            scalesConfig = {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: textColor, font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 } },
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textColor,
+                        callback: (v) => v.toLocaleString(),
+                        font: { family: "'Plus Jakarta Sans', sans-serif", size: 11 },
+                    },
+                    title: {
+                        display: true,
+                        text: "Count",
+                        color: textColor,
+                        font: { weight: "600", size: 11 },
+                    },
+                },
+            };
+        }
+
+        const ctx = pageStatsChartCanvas.getContext("2d");
+        pageStatsChartInstance = new Chart(ctx, {
+            data: {
+                labels: labels,
+                datasets: datasets,
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 650, easing: "easeOutQuart" },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "top",
+                        labels: {
+                            color: textColor,
+                            font: { family: "'Plus Jakarta Sans', sans-serif", size: 12, weight: "500" },
+                            usePointStyle: true,
+                            pointStyle: "circle",
+                            padding: 16,
+                        },
+                    },
+                    tooltip: {
+                        backgroundColor: tooltipBg,
+                        titleColor: tooltipText,
+                        bodyColor: tooltipText,
+                        borderColor: tooltipBorder,
+                        borderWidth: 1,
+                        padding: 12,
+                        boxPadding: 6,
+                        usePointStyle: true,
+                        bodyFont: { family: "'Plus Jakarta Sans', sans-serif", size: 12 },
+                        titleFont: { family: "'Plus Jakarta Sans', sans-serif", size: 13, weight: "600" },
+                        callbacks: {
+                            title: (items) => {
+                                if (items && items.length > 0) {
+                                    const idx = items[0].dataIndex;
+                                    return titles[idx] || labels[idx];
+                                }
+                                return "";
+                            },
+                            label: (context) => {
+                                const val = context.parsed.y;
+                                const dsLabel = context.dataset.label || "";
+                                if (dsLabel.includes("Size")) {
+                                    return ` ${dsLabel}: ${val.toLocaleString()} KB`;
+                                }
+                                return ` ${dsLabel}: ${val.toLocaleString()}`;
+                            },
+                        },
+                    },
+                },
+                scales: scalesConfig,
+            },
+        });
+    }
+
+    /**
+     * Render the detailed metrics table underneath the chart.
+     */
+    function renderStatsBreakdownTable(statsList) {
+        if (!statsTableBody) return;
+        statsTableBody.innerHTML = "";
+
+        const lang = (appSettings.lang || "en").toLowerCase();
+
+        statsList.forEach((s) => {
+            const tr = document.createElement("tr");
+            const slug = (s.slug || s.title || "").replace(/ /g, "_");
+            const wikiUrl = `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(slug)}`;
+            const xtoolsUrl = `https://xtools.wmflabs.org/articleinfo/${lang}.wikipedia.org/${encodeURIComponent(slug)}`;
+
+            tr.innerHTML = `
+                <td>
+                    <div class="fw-semibold">
+                        <a href="${wikiUrl}" target="_blank" class="text-body-emphasis text-decoration-none">
+                            ${escapeHtml(s.title || slug)}
+                            <i class="bi bi-box-arrow-up-right text-muted small ms-1" style="font-size: 0.75rem;"></i>
+                        </a>
+                    </div>
+                </td>
+                <td class="text-end font-monospace fw-medium">${(s.words || 0).toLocaleString()}</td>
+                <td class="text-end font-monospace">${s.file_size_formatted || `${s.file_size_kb || 0} KB`}</td>
+                <td class="text-end font-monospace text-warning-emphasis">${(s.revisions || 0).toLocaleString()}</td>
+                <td class="text-end font-monospace text-primary">${(s.editors || 0).toLocaleString()}</td>
+                <td class="text-end font-monospace text-info">${formatCompactNumber(s.pageviews || 0)}</td>
+                <td class="text-end font-monospace text-danger-emphasis">${(s.watchers || 0).toLocaleString()}</td>
+                <td class="text-end font-monospace text-success">${(s.references || 0).toLocaleString()}</td>
+                <td class="text-center">
+                    <a href="${xtoolsUrl}" target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-2 rounded-pill" title="View comprehensive history on XTools" style="font-size: 0.75rem;">
+                        <i class="bi bi-bar-chart me-1 text-primary"></i>XTools
+                    </a>
+                </td>
+            `;
+
+            statsTableBody.appendChild(tr);
+        });
+    }
+
+    updateGraphSoundButtonUI();
 });
