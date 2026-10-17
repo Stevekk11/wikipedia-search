@@ -30,6 +30,7 @@ from .extractor import (
     extract_page_summary,
     extract_target_link_context,
     get_page_backlinks,
+    walk_final_path_interactively,
 )
 from .scorer import compute_relevance_score
 
@@ -55,15 +56,18 @@ class WikipediaCrawler:
         context_words: int = 150,
         lang: str = "en",
         adaptive_balancing: bool = True,
+        interactive_mode: bool = False,
         **kwargs,
     ):
         self.start_input = start_input
         self.target_input = target_input
         self.adaptive_balancing = adaptive_balancing
+        self.interactive_mode = bool(interactive_mode)
         self.algorithm = algorithm.lower()
         self.max_pages = max(5, min(max_pages, 1000))
         self.max_depth = max(1, min(max_depth, 50))
-        self.headless = headless
+        # When interactive_mode is active, ensure a visible browser can open or launch during final walk
+        self.headless = False if self.interactive_mode else headless
         self.capture_screenshots = capture_screenshots
         self.context_words = max(20, min(context_words, 500))
         self.lang = (lang or "en").strip().lower()
@@ -121,6 +125,51 @@ class WikipediaCrawler:
             "link_context": ctx,
             "message": message,
         }
+
+    async def _emit_found_and_interactive_walk(
+        self,
+        page: Any,
+        final_path_titles: List[str],
+        final_path_slugs: List[str],
+        final_steps: List[Dict],
+        visited_count: int,
+        forward_visited: Dict,
+        backward_visited: Dict,
+        intermediate_pages: List[Dict],
+        found_on_page: str,
+        message: str,
+    ) -> AsyncGenerator[Dict, None]:
+        """
+        Enriches the final path, optionally runs the live Interactive Mode walkthrough
+        (scrolling to each link, highlighting it, and clicking it in the visible Playwright browser),
+        and then yields the 'found' payload.
+        """
+        payload = await self._build_found_payload(
+            page,
+            final_path_titles,
+            final_path_slugs,
+            final_steps,
+            visited_count,
+            forward_visited,
+            backward_visited,
+            intermediate_pages,
+            found_on_page,
+            message,
+        )
+        if self.interactive_mode and len(final_path_slugs) >= 2 and not self.cancel_requested:
+            try:
+                async for walk_event in walk_final_path_interactively(
+                    page,
+                    final_path_titles,
+                    final_path_slugs,
+                    final_steps,
+                    lang=self.lang,
+                    cancel_check=lambda: self.cancel_requested,
+                ):
+                    yield walk_event
+            except Exception as walk_err:
+                logger.warning(f"Interactive walkthrough error: {walk_err}")
+        yield payload
 
     async def search(self) -> AsyncGenerator[Dict, None]:
         """Executes simultaneous bidirectional search and yields JSON-serializable events."""
@@ -640,11 +689,12 @@ class WikipediaCrawler:
                                 f"Dynamic bridge seeding met forward frontier on '{p_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 p_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         yield {
@@ -694,11 +744,12 @@ class WikipediaCrawler:
                                 f"Both search frontiers met at '{current_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 current_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # Navigate to forward article
@@ -820,11 +871,12 @@ class WikipediaCrawler:
                                 f"Found link '{matched_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 clean_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # PASS 2: Check meeting conditions only if no direct target match exists
@@ -885,11 +937,12 @@ class WikipediaCrawler:
                                 f"Both search frontiers met at '{meeting_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 meeting_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # Enqueue forward children
@@ -985,11 +1038,12 @@ class WikipediaCrawler:
                                 f"Both search frontiers met at '{current_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 current_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # Check meeting condition 2: an already-visited forward page had an outgoing link to current_slug!
@@ -1013,11 +1067,12 @@ class WikipediaCrawler:
                                 f"Both search frontiers met at '{current_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 current_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # Navigate to backward article
@@ -1051,11 +1106,12 @@ class WikipediaCrawler:
                                 f"Target reached in {hops} hop{'s' if hops != 1 else ''}! "
                                 f"Reverse search traced back directly to '{start_info['title']}' after inspecting {visited_count} total pages."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 current_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # Fetch incoming backlinks to this node (pages that link TO this node)
@@ -1149,11 +1205,12 @@ class WikipediaCrawler:
                                 f"Both search frontiers met at '{clean_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 clean_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # PASS 2: Check for forward frontier collisions only if Start is not an incoming backlink
@@ -1212,11 +1269,12 @@ class WikipediaCrawler:
                                 f"Both search frontiers met at '{clean_title}' after inspecting {visited_count} total pages "
                                 f"({len(forward_visited)} forward + {len(backward_visited)} backward)."
                             )
-                            yield await self._build_found_payload(
+                            async for ev in self._emit_found_and_interactive_walk(
                                 page, final_path_titles, final_path_slugs, final_steps,
                                 visited_count, forward_visited, backward_visited, intermediate_pages,
                                 clean_title, msg
-                            )
+                            ):
+                                yield ev
                             return
 
                         # Enqueue backward parents (pages that link into this node)
@@ -1355,8 +1413,9 @@ class ViaCrawler:
         self.start_input = start_input
         self.via_input = via_input
         self.target_input = target_input
-        self.kwargs = kwargs
-        self.lang = (kwargs.get("lang") or "en").strip().lower()
+        self.kwargs = dict(kwargs)
+        self.interactive_mode = bool(self.kwargs.pop("interactive_mode", False))
+        self.lang = (self.kwargs.get("lang") or "en").strip().lower()
         self.cancel_requested = False
         self._current: Optional[WikipediaCrawler] = None
 
@@ -1366,6 +1425,8 @@ class ViaCrawler:
             self._current.cancel()
 
     async def search(self) -> AsyncGenerator[Dict, None]:
+        from playwright.async_api import async_playwright
+
         via_info = get_wikipedia_info(self.via_input, lang=self.lang)
         start_info = get_wikipedia_info(self.start_input, lang=self.lang)
         target_info = get_wikipedia_info(self.target_input, lang=self.lang)
@@ -1388,7 +1449,7 @@ class ViaCrawler:
                        "backward_visited_count": bwd_offset, "intermediate_pages": all_pages}
                 return
             logger.info(f"Via search leg {leg_no}/2: '{leg_start}' -> '{leg_target}'")
-            crawler = WikipediaCrawler(start_input=leg_start, target_input=leg_target, **self.kwargs)
+            crawler = WikipediaCrawler(start_input=leg_start, target_input=leg_target, interactive_mode=False, **self.kwargs)
             self._current = crawler
             if self.cancel_requested:
                 crawler.cancel()
@@ -1438,15 +1499,43 @@ class ViaCrawler:
 
         a, b = results
         path = a["path"] + b["path"][1:]
+        slugs = a["slugs"] + b["slugs"][1:]
         steps = [dict(s) for s in a["intermediate_steps"]] + [dict(s) for s in b["intermediate_steps"]]
         for idx, s in enumerate(steps):
             s["hop"] = idx + 1
         hops = len(path) - 1
+
+        if self.interactive_mode and len(slugs) >= 2 and not self.cancel_requested:
+            try:
+                async with async_playwright() as pw:
+                    browser = await launch_playwright_browser(pw, headless=False)
+                    context = await browser.new_context(
+                        viewport={"width": 1280, "height": 720},
+                        ignore_https_errors=True,
+                    )
+                    page = await context.new_page()
+                    try:
+                        async for walk_event in walk_final_path_interactively(
+                            page,
+                            path,
+                            slugs,
+                            steps,
+                            lang=self.lang,
+                            cancel_check=lambda: self.cancel_requested,
+                        ):
+                            yield walk_event
+                    finally:
+                        await page.close()
+                        await context.close()
+                        await browser.close()
+            except Exception as walk_err:
+                logger.warning(f"ViaCrawler interactive walkthrough error: {walk_err}")
+
         yield {
             "event": "found",
             "hops": hops,
             "path": path,
-            "slugs": a["slugs"] + b["slugs"][1:],
+            "slugs": slugs,
             "urls": a["urls"] + b["urls"][1:],
             "assessments": fetch_article_assessments(path, lang=self.lang),
             "total_visited": pages_offset,

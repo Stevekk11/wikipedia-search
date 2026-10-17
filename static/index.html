@@ -216,6 +216,7 @@
                              <span class="badge text-bg-secondary" id="summaryScreenshotsBadge"></span>
                              <span class="badge text-bg-secondary" id="summaryBalancingBadge"></span>
                              <span class="badge text-bg-secondary" id="summaryHeadlessBadge"></span>
+                             <span class="badge text-bg-secondary" id="summaryInteractiveBadge"></span>
                         </div>
                         <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
                             <i class="bi bi-sliders me-1"></i> Adjust Settings
@@ -722,6 +723,15 @@
                                         Headless Mode
                                     </label>
                                     <div class="text-muted small">Runs browser in background for maximum speed.</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="modalInteractiveToggle">
+                                    <label class="form-check-label small fw-semibold" for="modalInteractiveToggle">
+                                        Interactive Final Path Mode
+                                    </label>
+                                    <div class="text-muted small">Opens the Playwright browser to scroll to, highlight, and click each link along the final winning path.</div>
                                 </div>
                             </div>
                         </div>

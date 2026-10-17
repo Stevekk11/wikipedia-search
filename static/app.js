@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
         captureScreenshots: true,
         adaptiveBalancing: true,
         headless: true,
+        interactiveMode: false,
     };
 
     let appSettings = { ...DEFAULT_SETTINGS };
@@ -64,6 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const modalScreenshotToggle = document.getElementById("modalScreenshotToggle");
     const modalBalancingToggle = document.getElementById("modalBalancingToggle");
     const modalHeadlessToggle = document.getElementById("modalHeadlessToggle");
+    const modalInteractiveToggle = document.getElementById("modalInteractiveToggle");
     const saveSettingsBtn = document.getElementById("saveSettingsBtn");
     const resetSettingsBtn = document.getElementById("resetSettingsBtn");
 
@@ -237,7 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
         appSettings.maxDepth = parseInt(modalMaxDepth.value) || 5;
         appSettings.captureScreenshots = modalScreenshotToggle.checked;
         appSettings.adaptiveBalancing = modalBalancingToggle.checked;
-        appSettings.headless = modalHeadlessToggle.checked;
+        appSettings.interactiveMode = modalInteractiveToggle ? modalInteractiveToggle.checked : false;
+        appSettings.headless = appSettings.interactiveMode ? false : modalHeadlessToggle.checked;
 
         localStorage.setItem("wikihop-settings", JSON.stringify(appSettings));
         syncSettingsToUI();
@@ -301,7 +304,11 @@ document.addEventListener("DOMContentLoaded", () => {
         modalMaxDepthBadge.textContent = appSettings.maxDepth;
         modalScreenshotToggle.checked = appSettings.captureScreenshots;
         modalBalancingToggle.checked = appSettings.adaptiveBalancing !== false;
-        modalHeadlessToggle.checked = appSettings.headless;
+        if (modalInteractiveToggle) {
+            modalInteractiveToggle.checked = !!appSettings.interactiveMode;
+        }
+        modalHeadlessToggle.checked = appSettings.interactiveMode ? false : !!appSettings.headless;
+        modalHeadlessToggle.disabled = !!appSettings.interactiveMode;
 
         // Summary Badges
         summaryContextBadge.innerHTML = `<i class="bi bi-quote me-1"></i> Context: ${appSettings.contextWords} words`;
@@ -312,7 +319,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const toggleBadges = [
             ["summaryScreenshotsBadge", "bi-camera", "Screenshots", appSettings.captureScreenshots],
             ["summaryBalancingBadge", "bi-sliders2", "Adaptive Balancing", appSettings.adaptiveBalancing !== false],
-            ["summaryHeadlessBadge", "bi-window", "Headless", !!appSettings.headless],
+            ["summaryHeadlessBadge", "bi-window", "Headless", !appSettings.interactiveMode && !!appSettings.headless],
+            ["summaryInteractiveBadge", "bi-cursor-fill", "Interactive Path", !!appSettings.interactiveMode],
         ];
         toggleBadges.forEach(([id, icon, label, on]) => {
             const el = document.getElementById(id);
@@ -363,6 +371,18 @@ document.addEventListener("DOMContentLoaded", () => {
     modalMaxDepth.addEventListener("input", (e) => {
         modalMaxDepthBadge.textContent = e.target.value;
     });
+
+    if (modalInteractiveToggle) {
+        modalInteractiveToggle.addEventListener("change", () => {
+            if (modalInteractiveToggle.checked) {
+                modalHeadlessToggle.checked = false;
+                modalHeadlessToggle.disabled = true;
+            } else {
+                modalHeadlessToggle.disabled = false;
+                modalHeadlessToggle.checked = appSettings.headless;
+            }
+        });
+    }
 
     saveSettingsBtn.addEventListener("click", () => {
         saveSettings();
@@ -1120,8 +1140,9 @@ document.addEventListener("DOMContentLoaded", () => {
             max_pages: appSettings.maxPages,
             max_depth: appSettings.maxDepth,
             capture_screenshots: appSettings.captureScreenshots,
-            headless: appSettings.headless,
+            headless: appSettings.interactiveMode ? false : appSettings.headless,
             adaptive_balancing: appSettings.adaptiveBalancing,
+            interactive_mode: !!appSettings.interactiveMode,
             context_words: appSettings.contextWords,
         };
 
@@ -1241,6 +1262,23 @@ document.addEventListener("DOMContentLoaded", () => {
             currentStatsScope = "path";
             if (scopePathOnly) scopePathOnly.checked = true;
             fetchAndRenderPageStats();
+
+        } else if (eventType === "interactive_walk_step") {
+            const hop = data.hop || 0;
+            const totalHops = data.total_hops || 1;
+            const msg = data.message || `Interactive Walkthrough: Hop ${hop}/${totalHops}`;
+            kpiStatusBadge.textContent = msg;
+            kpiStatusBadge.className = "badge bg-warning text-dark rounded-pill px-3 py-1.5 shadow-sm";
+            if (liveDirectionBadge) {
+                liveDirectionBadge.className = "badge bg-warning text-dark";
+                liveDirectionBadge.innerHTML = `<i class="bi bi-cursor-fill me-1"></i> Interactive Final Path (${hop}/${totalHops})`;
+            }
+            if (data.from_title) {
+                livePageTitle.textContent = data.status === "completed" ? (data.to_title || data.from_title) : data.from_title;
+            }
+            if (livePageSnippet) {
+                livePageSnippet.textContent = msg;
+            }
 
         } else if (eventType === "bridge_seeding") {
             const count = data.new_bridges_count || 0;

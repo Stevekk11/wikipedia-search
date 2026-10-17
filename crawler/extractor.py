@@ -475,3 +475,367 @@ async def enrich_final_steps_context(page: Any, final_steps: List[Dict], lang: s
                             step["section"] = sec or "Lead / Introduction"
                 except Exception as e:
                     logger.debug(f"Could not enrich intermediate step context for {from_slug}: {e}")
+
+
+async def walk_final_path_interactively(
+    page: Any,
+    final_path_titles: List[str],
+    final_path_slugs: List[str],
+    final_steps: List[Dict],
+    lang: str = "en",
+    cancel_check: Optional[Any] = None,
+) -> Any:
+    """
+    Interactive Walkthrough Replay:
+    Opens/uses the visible Playwright browser to walk the actual discovered path
+    from Start to Target step-by-step. On each page, injects a visual HUD banner,
+    locates the exact outgoing link to the next hop (expanding collapsed templates
+    or synthesizing a prominent link banner if hidden), smoothly scrolls it into view,
+    highlights it with a glowing pulse animation, and clicks it to navigate to the next hop.
+    Yields real-time progress events for the WebSocket client.
+    """
+    import asyncio
+
+    lang = (lang or "en").strip().lower()
+    total_hops = max(0, len(final_path_slugs) - 1)
+    if total_hops == 0:
+        return
+
+    start_slug = final_path_slugs[0]
+    start_title = final_path_titles[0] if final_path_titles else start_slug.replace("_", " ")
+    start_url = f"https://{lang}.wikipedia.org/wiki/{start_slug}"
+
+    yield {
+        "event": "interactive_walk_step",
+        "hop": 0,
+        "total_hops": total_hops,
+        "status": "starting",
+        "from_title": start_title,
+        "to_title": final_path_titles[1] if len(final_path_titles) > 1 else "",
+        "message": f"Interactive Walkthrough: Opening starting article '{start_title}'...",
+    }
+
+    try:
+        await page.bring_to_front()
+    except Exception:
+        pass
+
+    try:
+        await page.goto(start_url, wait_until="domcontentloaded", timeout=20000)
+    except Exception as e:
+        logger.warning(f"Interactive walk failed to load start page {start_url}: {e}")
+
+    for hop_idx in range(total_hops):
+        if cancel_check and cancel_check():
+            return
+
+        from_slug = final_path_slugs[hop_idx]
+        from_title = final_path_titles[hop_idx] if hop_idx < len(final_path_titles) else from_slug.replace("_", " ")
+        to_slug = final_path_slugs[hop_idx + 1]
+        to_title = (
+            final_path_titles[hop_idx + 1]
+            if (hop_idx + 1) < len(final_path_titles)
+            else to_slug.replace("_", " ")
+        )
+        step_meta = final_steps[hop_idx] if hop_idx < len(final_steps) else {}
+        anchor_hint = step_meta.get("anchor_text") or to_title
+        hop_num = hop_idx + 1
+
+        # Ensure we are on the expected source page before searching for the link
+        cur_url = page.url or ""
+        if f"/wiki/{from_slug}".lower() not in urllib.parse.unquote(cur_url).lower():
+            try:
+                await page.goto(
+                    f"https://{lang}.wikipedia.org/wiki/{from_slug}",
+                    wait_until="domcontentloaded",
+                    timeout=18000,
+                )
+            except Exception as e:
+                logger.debug(f"Interactive walk navigation fallback for {from_slug}: {e}")
+
+        yield {
+            "event": "interactive_walk_step",
+            "hop": hop_num,
+            "total_hops": total_hops,
+            "status": "scrolling",
+            "from_title": from_title,
+            "to_title": to_title,
+            "message": f"Hop {hop_num}/{total_hops}: Scrolling to '{to_title}' on '{from_title}'...",
+        }
+
+        # Inject HUD banner, find target anchor, uncollapse any hidden containers, scroll & highlight
+        found_info = await page.evaluate(
+            """(args) => {
+                const { toSlug, toTitle, anchorHint, fromTitle, hopNum, totalHops, lang } = args;
+                const targetSlugLower = toSlug.toLowerCase();
+                const targetTitleLower = toTitle.toLowerCase().trim();
+                const cleanSlugLower = targetSlugLower.replace(/_/g, ' ');
+                const hintLower = (anchorHint || '').toLowerCase().trim();
+
+                // 1. Inject CSS for HUD & glowing link highlight
+                if (!document.getElementById('wikihop-interactive-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'wikihop-interactive-style';
+                    style.textContent = `
+                        @keyframes wikihop-pulse {
+                            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.85), 0 0 18px 6px rgba(239, 68, 68, 0.75); }
+                            50% { transform: scale(1.09); box-shadow: 0 0 0 14px rgba(234, 179, 8, 0), 0 0 28px 12px rgba(239, 68, 68, 0.95); }
+                            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 179, 8, 0), 0 0 18px 6px rgba(239, 68, 68, 0.75); }
+                        }
+                        .wikihop-target-highlight {
+                            display: inline-block !important;
+                            background: linear-gradient(135deg, #facc15 0%, #f97316 100%) !important;
+                            color: #0f172a !important;
+                            font-weight: 800 !important;
+                            padding: 4px 10px !important;
+                            margin: 0 3px !important;
+                            border-radius: 8px !important;
+                            border: 3px solid #ef4444 !important;
+                            text-decoration: none !important;
+                            position: relative !important;
+                            z-index: 99998 !important;
+                            animation: wikihop-pulse 0.9s infinite ease-in-out !important;
+                            transition: all 0.25s ease !important;
+                        }
+                        .wikihop-target-clicked {
+                            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%) !important;
+                            color: #ffffff !important;
+                            border-color: #15803d !important;
+                            transform: scale(1.14) !important;
+                        }
+                        #wikihop-hud-banner {
+                            position: fixed;
+                            top: 16px;
+                            right: 16px;
+                            z-index: 99999;
+                            background: rgba(15, 23, 42, 0.94);
+                            color: #f8fafc;
+                            border: 2px solid #38bdf8;
+                            border-radius: 14px;
+                            padding: 14px 20px;
+                            font-family: system-ui, -apple-system, sans-serif;
+                            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+                            max-width: 430px;
+                            backdrop-filter: blur(8px);
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+
+                // 2. Inject or update floating HUD banner
+                let hud = document.getElementById('wikihop-hud-banner');
+                if (!hud) {
+                    hud = document.createElement('div');
+                    hud.id = 'wikihop-hud-banner';
+                    document.body.appendChild(hud);
+                }
+                hud.innerHTML = `
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #38bdf8; font-weight: 700; margin-bottom: 4px;">
+                        🌐 WikiHop Interactive Final Path &bull; Hop ${hopNum} of ${totalHops}
+                    </div>
+                    <div style="font-size: 15px; font-weight: 700; margin-bottom: 6px; line-height: 1.35;">
+                        ${fromTitle} <span style="color: #facc15; margin: 0 4px;">&rarr;</span> <span style="color: #4ade80;">${toTitle}</span>
+                    </div>
+                    <div id="wikihop-hud-status" style="font-size: 12.5px; color: #cbd5e1;">
+                        🔍 Locating &amp; scrolling to connecting link...
+                    </div>
+                `;
+
+                // 3. Locate the link in #bodyContent or document.body
+                const body = document.querySelector('#bodyContent') || document.body;
+                const anchors = Array.from(body.querySelectorAll('a[href]'));
+
+                function decodeSlug(rawHref) {
+                    let s = '';
+                    if (rawHref.startsWith('/wiki/')) s = rawHref.substring(6);
+                    else if (rawHref.includes('.wikipedia.org/wiki/')) s = rawHref.split('.wikipedia.org/wiki/')[1] || '';
+                    else return '';
+                    s = s.split('#')[0].split('?')[0];
+                    try { s = decodeURIComponent(s); } catch(e) {}
+                    return s;
+                }
+
+                // Priority 1: Exact slug match in main prose (not navbox)
+                let targetEl = anchors.find(a => {
+                    if (a.closest('.navbox, .vertical-navbox')) return false;
+                    const s = decodeSlug(a.getAttribute('href') || '').toLowerCase();
+                    return s === targetSlugLower || s.replace(/_/g, ' ') === cleanSlugLower;
+                });
+
+                // Priority 2: Exact slug match anywhere (including navboxes/tables)
+                if (!targetEl) {
+                    targetEl = anchors.find(a => {
+                        const s = decodeSlug(a.getAttribute('href') || '').toLowerCase();
+                        return s === targetSlugLower || s.replace(/_/g, ' ') === cleanSlugLower;
+                    });
+                }
+
+                // Priority 3: Match by title attribute or anchor text (for redirects)
+                if (!targetEl) {
+                    targetEl = anchors.find(a => {
+                        const t = (a.getAttribute('title') || '').toLowerCase().trim();
+                        const txt = (a.innerText || '').toLowerCase().trim();
+                        return t === targetTitleLower || t === cleanSlugLower || txt === targetTitleLower || (hintLower && txt === hintLower);
+                    });
+                }
+
+                // If inside a collapsed container (e.g. mw-collapsed navbox), expand it so it is visible
+                if (targetEl) {
+                    let cur = targetEl.parentElement;
+                    while (cur && cur !== document.body) {
+                        if (cur.classList && cur.classList.contains('mw-collapsed')) {
+                            cur.classList.remove('mw-collapsed');
+                        }
+                        const st = window.getComputedStyle(cur);
+                        if (st.display === 'none' || st.visibility === 'hidden') {
+                            cur.style.setProperty('display', 'block', 'important');
+                            cur.style.setProperty('visibility', 'visible', 'important');
+                        }
+                        cur = cur.parentElement;
+                    }
+                } else {
+                    // Fallback: synthesize a visible bridge link banner at top of article if hidden in collapsed template
+                    const fallbackBox = document.createElement('div');
+                    fallbackBox.style.cssText = 'margin: 18px 0; padding: 14px 18px; background: #fef9c3; border: 2px dashed #eab308; border-radius: 10px; color: #1e293b; font-family: sans-serif;';
+                    fallbackBox.innerHTML = `<span style="font-weight:600; margin-right: 8px;">WikiHop Direct Link Target:</span>`;
+                    const synthA = document.createElement('a');
+                    synthA.href = `/wiki/${encodeURIComponent(toSlug)}`;
+                    synthA.textContent = toTitle;
+                    fallbackBox.appendChild(synthA);
+                    body.prepend(fallbackBox);
+                    targetEl = synthA;
+                }
+
+                // Tag the element so we can click it reliably
+                document.querySelectorAll('[data-wikihop-active]').forEach(el => {
+                    el.removeAttribute('data-wikihop-active');
+                    el.classList.remove('wikihop-target-highlight', 'wikihop-target-clicked');
+                });
+                targetEl.setAttribute('data-wikihop-active', 'true');
+                targetEl.classList.add('wikihop-target-highlight');
+
+                // Rewrite href to canonical target slug so redirects land cleanly on the next hop
+                targetEl.setAttribute('href', `/wiki/${toSlug}`);
+                targetEl.removeAttribute('target');
+
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+
+                const statusEl = document.getElementById('wikihop-hud-status');
+                if (statusEl) {
+                    statusEl.innerHTML = `✨ Highlighted link <strong>"${(targetEl.innerText || toTitle).trim()}"</strong> &mdash; clicking next...`;
+                }
+
+                return {
+                    found: true,
+                    anchorText: (targetEl.innerText || toTitle).trim(),
+                };
+            }""",
+            {
+                "toSlug": to_slug,
+                "toTitle": to_title,
+                "anchorHint": anchor_hint,
+                "fromTitle": from_title,
+                "hopNum": hop_num,
+                "totalHops": total_hops,
+                "lang": lang,
+            },
+        )
+
+        # Wait so user can clearly watch the smooth scroll and glowing highlight pulse
+        await asyncio.sleep(1.8)
+        if cancel_check and cancel_check():
+            return
+
+        yield {
+            "event": "interactive_walk_step",
+            "hop": hop_num,
+            "total_hops": total_hops,
+            "status": "clicking",
+            "from_title": from_title,
+            "to_title": to_title,
+            "anchor_text": (found_info or {}).get("anchorText", to_title),
+            "message": f"Hop {hop_num}/{total_hops}: Clicking link '{(found_info or {}).get('anchorText', to_title)}' → '{to_title}'...",
+        }
+
+        # Visually mark as clicked before triggering navigation
+        try:
+            await page.evaluate(
+                """() => {
+                    const el = document.querySelector('[data-wikihop-active="true"]');
+                    if (el) el.classList.add('wikihop-target-clicked');
+                    const statusEl = document.getElementById('wikihop-hud-status');
+                    if (statusEl) statusEl.innerHTML = '🖱️ Clicking link &amp; navigating...';
+                }"""
+            )
+        except Exception:
+            pass
+
+        await asyncio.sleep(0.35)
+
+        # Click the highlighted link and wait for navigation to the next article
+        navigated = False
+        try:
+            locator = page.locator('[data-wikihop-active="true"]').first
+            async with page.expect_navigation(wait_until="domcontentloaded", timeout=15000):
+                await locator.click(timeout=5000, force=True)
+            navigated = True
+        except Exception as click_err:
+            logger.debug(f"Interactive click navigation fallback on hop {hop_num}: {click_err}")
+
+        if not navigated:
+            try:
+                await page.goto(
+                    f"https://{lang}.wikipedia.org/wiki/{to_slug}",
+                    wait_until="domcontentloaded",
+                    timeout=18000,
+                )
+            except Exception as nav_err:
+                logger.warning(f"Interactive walk fallback goto failed for {to_slug}: {nav_err}")
+
+        await asyncio.sleep(0.4)
+
+    # Final destination reached banner on Target page
+    final_title = final_path_titles[-1] if final_path_titles else final_path_slugs[-1].replace("_", " ")
+    try:
+        await page.evaluate(
+            """(args) => {
+                const { finalTitle, totalHops } = args;
+                let hud = document.getElementById('wikihop-hud-banner');
+                if (!hud) {
+                    hud = document.createElement('div');
+                    hud.id = 'wikihop-hud-banner';
+                    hud.style.cssText = 'position: fixed; top: 16px; right: 16px; z-index: 99999; background: rgba(15, 23, 42, 0.95); color: #f8fafc; border: 2px solid #22c55e; border-radius: 14px; padding: 14px 20px; font-family: system-ui, -apple-system, sans-serif; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); max-width: 430px;';
+                    document.body.appendChild(hud);
+                } else {
+                    hud.style.borderColor = '#22c55e';
+                }
+                hud.innerHTML = `
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #4ade80; font-weight: 700; margin-bottom: 4px;">
+                        🎯 Target Destination Reached!
+                    </div>
+                    <div style="font-size: 16px; font-weight: 800; margin-bottom: 4px; color: #ffffff;">
+                        ${finalTitle}
+                    </div>
+                    <div style="font-size: 12.5px; color: #cbd5e1;">
+                        Completed ${totalHops} hop${totalHops === 1 ? '' : 's'} along the final path.
+                    </div>
+                `;
+            }""",
+            {"finalTitle": final_title, "totalHops": total_hops},
+        )
+    except Exception:
+        pass
+
+    yield {
+        "event": "interactive_walk_step",
+        "hop": total_hops,
+        "total_hops": total_hops,
+        "status": "completed",
+        "from_title": final_path_titles[0] if final_path_titles else "",
+        "to_title": final_title,
+        "message": f"Interactive Walkthrough complete! Reached '{final_title}' in {total_hops} hop{'s' if total_hops != 1 else ''}.",
+    }
+
+    # Pause briefly on the final target article so the user can see the destination
+    await asyncio.sleep(2.5)
+

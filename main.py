@@ -455,6 +455,7 @@ async def websocket_search(websocket: WebSocket):
         headless = bool(params.get("headless", True))
         context_words = int(params.get("context_words", 150))
         adaptive_balancing = bool(params.get("adaptive_balancing", True))
+        interactive_mode = bool(params.get("interactive_mode", False))
 
         via = (params.get("via") or "").strip()
         crawler_kwargs = dict(
@@ -466,6 +467,7 @@ async def websocket_search(websocket: WebSocket):
             context_words=context_words,
             lang=lang,
             adaptive_balancing=adaptive_balancing,
+            interactive_mode=interactive_mode,
         )
         if via:
             current_crawler = ViaCrawler(start_input=start, via_input=via, target_input=target, **crawler_kwargs)
