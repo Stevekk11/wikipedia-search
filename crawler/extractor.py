@@ -99,7 +99,7 @@ async def extract_outgoing_links(page: Any) -> List[Dict[str, str]]:
                     try { slug = decodeURIComponent(slug); } catch(e) {}
                     if (disallowed.some(p => slug.startsWith(p))) continue;
 
-                    const key = slug.toLowerCase();
+                    const key = slug.charAt(0).toLowerCase() + slug.slice(1);
                     if (!seen.has(key)) {
                         seen.add(key);
                         const title = a.getAttribute('title') || a.innerText.trim() || slug.replace(/_/g, ' ');
@@ -206,7 +206,7 @@ async def get_page_backlinks(page: Any, slug: str, limit: int = 500, lang: str =
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     api_url = (
         f"https://{lang}.wikipedia.org/w/api.php?action=query&list=backlinks"
-        f"&bltitle={encoded}&bllimit={limit}&blnamespace=0&format=json"
+        f"&bltitle={encoded}&bllimit={limit}&blnamespace=0&blfilterredir=nonredirects&format=json"
     )
 
     try:
@@ -283,28 +283,72 @@ async def extract_target_link_context(
     clean_source_title = source_title or source_slug.replace("_", " ")
     try:
         cur_url = page.url or ""
-        if f"/wiki/{source_slug}" not in cur_url:
+        if f"/wiki/{source_slug}".lower() not in urllib.parse.unquote(cur_url).lower():
             await page.goto(f"https://{lang}.wikipedia.org/wiki/{source_slug}", wait_until="domcontentloaded", timeout=12000)
 
         extracted_context = await page.evaluate(
             """args => {
-                const targetSlug = args.targetSlug.toLowerCase();
+                const rawTargetSlug = args.targetSlug || '';
+                const normWikiSlug = s => s ? (s.charAt(0).toLowerCase() + s.slice(1)).replace(/ /g, '_') : '';
+                const targetWikiSlug = normWikiSlug(rawTargetSlug);
+                const targetSlug = rawTargetSlug.toLowerCase();
+                const cleanSlug = targetSlug.replace(/_/g, ' ');
+                const targetTitleLower = (args.targetTitle || '').toLowerCase().trim();
                 const wordsBeforeCount = args.wordsBeforeCount;
                 const wordsAfterCount = args.wordsAfterCount;
                 const body = document.querySelector('#bodyContent') || document.body;
-                
+
+                function decodeHrefSlug(rawHref) {
+                    let s = '';
+                    if (rawHref.startsWith('/wiki/')) {
+                        s = rawHref.substring(6);
+                    } else if (rawHref.includes('.wikipedia.org/wiki/')) {
+                        s = rawHref.split('.wikipedia.org/wiki/')[1] || '';
+                    } else {
+                        return '';
+                    }
+                    s = s.split('#')[0].split('?')[0];
+                    try { s = decodeURIComponent(s); } catch(e) {}
+                    return s;
+                }
+
                 const anchors = Array.from(body.querySelectorAll('a[href]'));
+
+                // Priority 1: Exact Wikipedia canonical slug match in main article prose (excluding navboxes)
                 let targetAnchor = anchors.find(a => {
-                    const href = (a.getAttribute('href') || '').toLowerCase();
-                    return href.includes('/wiki/' + targetSlug) || href.endsWith('/' + targetSlug);
+                    if (a.closest('.navbox, .vertical-navbox')) return false;
+                    const s = normWikiSlug(decodeHrefSlug(a.getAttribute('href') || ''));
+                    return s && s === targetWikiSlug;
                 });
 
+                // Priority 2: Case-insensitive exact decoded slug match in main article prose
+                if (!targetAnchor) {
+                    targetAnchor = anchors.find(a => {
+                        if (a.closest('.navbox, .vertical-navbox')) return false;
+                        const s = decodeHrefSlug(a.getAttribute('href') || '').toLowerCase();
+                        return s === targetSlug || s.replace(/_/g, ' ') === cleanSlug;
+                    });
+                }
+
+                // Priority 3: Exact decoded slug match anywhere on the page (including navboxes/tables)
+                if (!targetAnchor) {
+                    targetAnchor = anchors.find(a => {
+                        const rawS = decodeHrefSlug(a.getAttribute('href') || '');
+                        const s = rawS.toLowerCase();
+                        return normWikiSlug(rawS) === targetWikiSlug || s === targetSlug || s.replace(/_/g, ' ') === cleanSlug;
+                    });
+                }
+
+                // Priority 4: Exact title attribute or anchor text match (for redirects)
                 if (!targetAnchor) {
                     targetAnchor = anchors.find(a => {
                         const text = (a.innerText || '').toLowerCase().trim();
                         const title = (a.getAttribute('title') || '').toLowerCase().trim();
-                        const cleanSlug = targetSlug.replace(/_/g, ' ');
-                        return text === cleanSlug || title === cleanSlug;
+                        return (
+                            text === cleanSlug ||
+                            title === cleanSlug ||
+                            (targetTitleLower && (text === targetTitleLower || title === targetTitleLower))
+                        );
                     });
                 }
 
@@ -403,6 +447,7 @@ async def extract_target_link_context(
             }""",
             {
                 "targetSlug": target_slug,
+                "targetTitle": target_title,
                 "wordsBeforeCount": words_count,
                 "wordsAfterCount": words_count,
             },
@@ -567,8 +612,10 @@ async def walk_final_path_interactively(
         found_info = await page.evaluate(
             """(args) => {
                 const { toSlug, toTitle, anchorHint, fromTitle, hopNum, totalHops, lang } = args;
-                const targetSlugLower = toSlug.toLowerCase();
-                const targetTitleLower = toTitle.toLowerCase().trim();
+                const normWikiSlug = s => s ? (s.charAt(0).toLowerCase() + s.slice(1)).replace(/ /g, '_') : '';
+                const targetWikiSlug = normWikiSlug(toSlug || '');
+                const targetSlugLower = (toSlug || '').toLowerCase();
+                const targetTitleLower = (toTitle || '').toLowerCase().trim();
                 const cleanSlugLower = targetSlugLower.replace(/_/g, ' ');
                 const hintLower = (anchorHint || '').toLowerCase().trim();
 
@@ -655,22 +702,32 @@ async def walk_final_path_interactively(
                     return s;
                 }
 
-                // Priority 1: Exact slug match in main prose (not navbox)
+                // Priority 1: Exact Wikipedia canonical slug match in main prose (not navbox)
                 let targetEl = anchors.find(a => {
                     if (a.closest('.navbox, .vertical-navbox')) return false;
-                    const s = decodeSlug(a.getAttribute('href') || '').toLowerCase();
-                    return s === targetSlugLower || s.replace(/_/g, ' ') === cleanSlugLower;
+                    const s = normWikiSlug(decodeSlug(a.getAttribute('href') || ''));
+                    return s && s === targetWikiSlug;
                 });
 
-                // Priority 2: Exact slug match anywhere (including navboxes/tables)
+                // Priority 2: Case-insensitive exact slug match in main prose (not navbox)
                 if (!targetEl) {
                     targetEl = anchors.find(a => {
+                        if (a.closest('.navbox, .vertical-navbox')) return false;
                         const s = decodeSlug(a.getAttribute('href') || '').toLowerCase();
                         return s === targetSlugLower || s.replace(/_/g, ' ') === cleanSlugLower;
                     });
                 }
 
-                // Priority 3: Match by title attribute or anchor text (for redirects)
+                // Priority 3: Exact slug match anywhere (including navboxes/tables)
+                if (!targetEl) {
+                    targetEl = anchors.find(a => {
+                        const rawS = decodeSlug(a.getAttribute('href') || '');
+                        const s = rawS.toLowerCase();
+                        return normWikiSlug(rawS) === targetWikiSlug || s === targetSlugLower || s.replace(/_/g, ' ') === cleanSlugLower;
+                    });
+                }
+
+                // Priority 4: Match by title attribute or anchor text (for redirects)
                 if (!targetEl) {
                     targetEl = anchors.find(a => {
                         const t = (a.getAttribute('title') || '').toLowerCase().trim();
